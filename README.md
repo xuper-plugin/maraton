@@ -106,6 +106,16 @@ node <kino>/plugins/sdk/run.mjs . validateSettings '{"useSerieskao":false,"useAl
 npm test
 ```
 
+**Firmar una versión** (solo al publicar, después del último cambio a `plugin.js` y a `version`):
+
+```
+scripts/sign-release.sh <kino>/plugins/sdk
+```
+
+Firma con la clave de autor de xuper-plugin (`~/.config/maraton-signing/xuper-plugin-author-key.pem`, fuera del
+repositorio, modo 600; huella `E04E-EA25-1A34-290E`), corre las pruebas y `validate.mjs --repo xuper-plugin/maraton`.
+Guarda una copia de la clave: Kino la fija en la primera instalación y sin ella nadie puede recibir actualizaciones.
+
 `resolve` no corre en el kit de Node (no hay navegador: responde `browser_unavailable`); pruébalo en un aparato. En un
 build debug de Kino se puede instalar sin publicar con `PluginSideloadProbe`: copia esta carpeta a
 `files/debug-plugins/local/maraton/` e instala `local/maraton`.
