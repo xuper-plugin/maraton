@@ -1,19 +1,21 @@
 {
   "id": "maraton",
   "name": "Maratón",
-  "version": "0.5.7",
-  "apiVersion": 6,
+  "version": "0.6.0",
+  "apiVersion": 7,
   "entry": "plugin.js",
   "description": "Series, anime y películas en latino, castellano o subtitulado. El video se busca en tu propio aparato, sin servidores intermedios.",
   "author": "Equipo Maratón",
   "hosts": [
     "serieskao.top",
     "morencius.com",
+    "sololatino.net",
     "hglink.to",
     "voe.sx",
     "tmdb.allcalidad.re",
     "vimeos.net",
-    "goodstream.one"
+    "goodstream.one",
+    "embed69.org"
   ],
   "capabilities": [
     "search",
@@ -51,6 +53,12 @@
     {
       "key": "useAllcalidad",
       "label": "Usar AllCalidad",
+      "type": "toggle",
+      "default": true
+    },
+    {
+      "key": "useSololatino",
+      "label": "Usar SoloLatino",
       "type": "toggle",
       "default": true
     },

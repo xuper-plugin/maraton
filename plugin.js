@@ -24,8 +24,8 @@ const SITES = {
  * Cloudflare challenge from every network tried, and reading it would need the hidden browser to return a page's HTML
  * (an SDK change the owner asked to wait for).
  */
-const ALL_SITES = ["sk", "ac"];
-const SITE_SETTING = { sk: "useSerieskao", ac: "useAllcalidad" };
+const ALL_SITES = ["sk", "ac", "sl"];
+const SITE_SETTING = { sk: "useSerieskao", ac: "useAllcalidad", sl: "useSololatino" };
 
 /** The sites switched on in the plugin's settings (both by default; validateSettings refuses switching both off). */
 export function activeSites() {
@@ -161,6 +161,310 @@ export function acPlaybackPath(ref) {
   if (kind === "movie") return `/v1/playback/movie/${id}`;
   if (!/^\d+$/.test(season || "") || !/^\d+$/.test(episode || "")) throw kino.error("not_found", "falta el episodio");
   return `/v1/playback/${kind}/${id}?season=${season}&episode=${episode}`;
+}
+
+// ---------- sololatino (apiVersion 7: kino.browser.page where a plain read hits Cloudflare) ----------
+//
+// sololatino.net, measured 2026-10-04: its catalogs, series, movie and episode pages answer a plain request; its
+// /buscar page answers Cloudflare's "Just a moment…", but the site's own search box reads a JSON suggest API that
+// answers fine. Each episode or movie page lists its servers as encrypted "player tokens" per language
+// (data-lang-group mx / es / sub); the page's own script turns one into the player URL with Laravel Sanctum
+// (GET /sanctum/csrf-cookie, then POST /api/player-url { t } with the XSRF cookie's value as X-XSRF-TOKEN). One of
+// those players is an embed69 page (embed69.org/f/<imdb>-<s>x<ee>), the same as serieskao's, so the same decryption
+// and capture follow. When a plain read does get the challenge page, the hidden browser reads the page instead
+// (kino.browser.page), cached a few minutes so the person's typing never opens page after page.
+
+const SL = { id: "sl", name: "SoloLatino", base: "https://sololatino.net" };
+/** A desktop browser's headers: with them the catalog and title pages answer a plain request (a phone's UA got 403). */
+const SL_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+  Accept: "text/html,application/xhtml+xml", "Accept-Language": "es-CO,es;q=0.9",
+};
+const SL_CATALOG = { serie: "/series?page=", anime: "/animes?page=", pelicula: "/peliculas?page=" };
+/** A page read through the hidden browser is kept this long: a person paging back and forth never re-opens it. */
+const SL_PAGE_CACHE_MS = 5 * 60 * 1000;
+/** After the hidden browser was blocked or timed out, sololatino is left alone this long (no page after page). */
+const SL_DOWN_MS = 15 * 60 * 1000;
+const SL_PAGE_TIMEOUT_MS = 10000;
+const slDownKey = "sitedown:sl";
+
+export function slIsDown(nowMs = Date.now()) {
+  const until = (storageGet(slDownKey) || {}).until || 0;
+  return until > nowMs;
+}
+
+function slUnavailable(why) {
+  return kino.error("unavailable", `${SL.name}: ${why}`, { userMessage: `${SL.name} no está dejando entrar en este momento. Las otras fuentes siguen funcionando.` });
+}
+
+/**
+ * One sololatino page: a plain read first; on Cloudflare's challenge, the hidden browser (apiVersion 7) when
+ * [allowPage] — never for Home rows, which Kino also asks for on its own. A blocked or timed-out page read marks the
+ * site down for [SL_DOWN_MS]; while down, nothing is read at all.
+ */
+export async function slRead(path, { allowPage = true, waitFor } = {}) {
+  if (slIsDown()) throw slUnavailable("en pausa tras un bloqueo");
+  const url = SL.base + path;
+  const cached = storageGet("slpage:" + path);
+  if (cached && cached.html) return cached.html;
+  const t0 = Date.now();
+  let challenged = false;
+  try {
+    const r = await kino.fetch(url, { headers: SL_HEADERS, timeoutMs: FETCH_TIMEOUT_MS });
+    const html = r.text();
+    kino.log(`fetch ${safe(url)} -> ${r.status} in ${Date.now() - t0} ms`);
+    if (r.ok && !looksLikeChallenge(html)) return html;
+    if (r.status === 404) throw kino.error("not_found", `${SL.name} respondió 404`, { userMessage: `${SL.name} ya no tiene esta página.` });
+    challenged = looksLikeChallenge(html) || r.status === 403;
+    if (!challenged) {
+      report("maraton:site", "http", "site=sl", `status=${r.status}`);
+      throw kino.error("unavailable", `${SL.name} respondió ${r.status}`, { userMessage: `${SL.name} no está respondiendo bien (${r.status}).` });
+    }
+  } catch (e) {
+    if (e.code === "not_found" || (e.code === "unavailable" && !challenged)) throw e;
+    if (!challenged) {
+      report("maraton:site", "down", "site=sl", `code=${e.code || "network"}`);
+      throw kino.error("unavailable", `${SL.name}: ${e.code || "network"}`, { userMessage: `${SL.name} no responde. Vuelve a intentar en un rato.` });
+    }
+  }
+  report("maraton:site", "cloudflare", "site=sl");
+  if (!allowPage || !kino.browser || typeof kino.browser.page !== "function") throw slUnavailable("verificación de Cloudflare");
+  const t1 = Date.now();
+  try {
+    const got = await kino.browser.page(url, { timeoutMs: SL_PAGE_TIMEOUT_MS, ...(waitFor ? { waitFor } : {}) });
+    kino.log(`page ${safe(url)} -> ${got.status} in ${Date.now() - t1} ms${got.truncated ? " (truncated)" : ""}`);
+    storageSet("slpage:" + path, { html: got.html }, SL_PAGE_CACHE_MS);
+    return got.html;
+  } catch (e) {
+    kino.log(`page ${safe(url)}: ${e.code || ""} ${e.message} after ${Date.now() - t1} ms`);
+    if (e.code === "blocked" || e.code === "timeout") {
+      storageSet(slDownKey, { until: Date.now() + SL_DOWN_MS }, SL_DOWN_MS);
+      report("maraton:page", e.code, "site=sl");
+    }
+    throw slUnavailable(e.code || "page");
+  }
+}
+
+/** sololatino's `<div class="card">`: link, poster (alt = title), kind badge, rating, year. */
+export function slCards(html) {
+  const out = [];
+  const seen = new Set();
+  const rx = /<div class="card">\s*<a href="([^"]+)">([\s\S]*?)<\/div>\s*<\/div>/gi;
+  let m;
+  while ((m = rx.exec(html))) {
+    const path = String(m[1]).replace(SL.base, "");
+    if (!/^\/(serie|pelicula)\/[^/]+$/.test(path) || seen.has(path)) continue;
+    seen.add(path);
+    const block = m[2];
+    const img = /<img[\s\S]*?>/i.exec(block);
+    const title = text((/card__title">([\s\S]*?)<\/p>/i.exec(block) || [])[1]) || (img ? attr(img[0], "alt") : "");
+    if (!title) continue;
+    const kind = path.startsWith("/pelicula/") ? "movie" : "series";
+    const item = { id: idOf("sl", path), ref: `sl|${path}`, title, kind };
+    const poster = img ? attr(img[0], "src") : "";
+    if (/^https?:\/\//.test(poster)) item.poster = poster;
+    const year = text((/card__year">([\s\S]*?)</i.exec(block) || [])[1]);
+    if (/^\d{4}$/.test(year)) item.year = year;
+    const rating = parseFloat((/card__rating">\s*★?\s*([\d.]+)/i.exec(block) || [])[1]);
+    if (rating > 0 && rating <= 10) item.rating = Math.round(rating * 10) / 10;
+    if (/badge-anime/.test(block)) item.genres = ["Anime"];
+    out.push(item);
+  }
+  return out;
+}
+
+/** The suggest API's answer as items (series, anime and movies; its own type names them). */
+export function slSuggestItems(list) {
+  const out = [];
+  for (const it of Array.isArray(list) ? list : []) {
+    const path = String((it && it.url) || "").replace(SL.base, "");
+    if (!/^\/(serie|pelicula)\/[^/]+$/.test(path) || !it.title) continue;
+    const item = { id: idOf("sl", path), ref: `sl|${path}`, title: String(it.title).slice(0, 200), kind: path.startsWith("/pelicula/") ? "movie" : "series" };
+    if (/^https?:\/\//.test(it.poster || "")) item.poster = it.poster;
+    if (it.year) item.year = String(it.year);
+    if (it.type === "anime") item.genres = ["Anime"];
+    out.push(item);
+  }
+  return out;
+}
+
+/** Search: the JSON suggest API (plain), else the /buscar page through the hidden browser. Cached 10 min per text. */
+async function slSearch(q) {
+  const key = "slsearch:" + q.toLowerCase().slice(0, 100);
+  const cached = storageGet(key);
+  if (cached && Array.isArray(cached.items)) return cached.items;
+  if (slIsDown()) throw slUnavailable("en pausa tras un bloqueo");
+  let items = null;
+  try {
+    const r = await kino.fetch(`${SL.base}/api/search/suggest?q=${encodeURIComponent(q)}`, {
+      headers: { ...SL_HEADERS, Accept: "application/json", Referer: SL.base + "/" }, timeoutMs: FETCH_TIMEOUT_MS,
+    });
+    if (r.ok) items = slSuggestItems(r.json());
+    else kino.log(`search sl suggest -> ${r.status}`);
+  } catch (e) {
+    kino.log(`search sl suggest: ${e.code || ""} ${e.message}`);
+  }
+  // Short texts never open the hidden browser: the person is still typing.
+  if (!items && q.length >= 3) items = slCards(await slRead(`/buscar?q=${encodeURIComponent(q)}`, { waitFor: 'class="card"' }));
+  if (!items) items = [];
+  storageSet(key, { items }, 10 * 60 * 1000);
+  return items;
+}
+
+/**
+ * hacktorrent-mirror's normalize.py: sololatino numbers some shows ABSOLUTELY (Naruto's "temporada-2" starts at
+ * episode 53). A show is absolute when any season after the first starts above episode 2.
+ */
+export function numberingStyle(list) {
+  const bySeason = new Map();
+  for (const e of list) {
+    const s = bySeason.get(e.season) || [];
+    s.push(e.number);
+    bySeason.set(e.season, s);
+  }
+  const seasons = [...bySeason.keys()].sort((a, b) => a - b);
+  return seasons.slice(1).some((s) => Math.min(...bySeason.get(s)) > 2) ? "absolute" : "relative";
+}
+
+/** An absolute episode number placed in TMDB's seasons ([{ season, count }], specials skipped); null past the end. */
+export function remapAbsolute(n, seasons) {
+  let left = n;
+  for (const s of [...seasons].sort((a, b) => a.season - b.season)) {
+    if (s.season === 0) continue;
+    if (left <= s.count) return [s.season, left];
+    left -= s.count;
+  }
+  return null;
+}
+
+/** TMDB's season sizes for an IMDb id, read from allcalidad's API (it carries TMDB's data; no key of ours). */
+async function tmdbSeasonsFor(imdb, title) {
+  const found = ((await acGet(`/v1/search?q=${encodeURIComponent(title)}`)).items || []).find((i) => i.imdb_id === imdb && i.kind !== "movie");
+  if (!found) return null;
+  const item = (await acGet(`/v1/items/${found.kind}/${found.tmdb_id}`)).item || {};
+  const seasons = (item.episode_seasons || []).filter((x) => Number.isInteger(x.season) && Number.isInteger(x.count)).map((x) => ({ season: x.season, count: x.count }));
+  // allcalidad lists only the seasons IT has (Naruto: 1 of TMDB's 4, measured): a partial list would squeeze every
+  // later episode out, so it is used only when it has every regular season TMDB counts.
+  const regular = seasons.filter((x) => x.season >= 1).length;
+  if (!regular || (Number.isInteger(item.number_of_seasons) && regular < item.number_of_seasons)) return null;
+  return seasons;
+}
+
+/** A sololatino series page's episodes: anchors to /temporada-N/episodio-M with their still and title. */
+export function slEpisodes(html, path) {
+  const out = [];
+  const seen = new Set();
+  const rx = /<a href="(https:\/\/sololatino\.net\/serie\/[^"]+\/temporada-(\d+)\/episodio-(\d+))"([\s\S]*?)<\/a>/gi;
+  let m;
+  while ((m = rx.exec(html))) {
+    const epPath = m[1].replace(SL.base, "");
+    if (seen.has(epPath)) continue;
+    seen.add(epPath);
+    const ep = { season: parseInt(m[2], 10), number: parseInt(m[3], 10), ref: `sl|${epPath}` };
+    if (!ep.season || !ep.number) continue;
+    const img = /<img[^>]+>/i.exec(m[4]);
+    const still = img ? attr(img[0], "src") : "";
+    if (/^https?:\/\//.test(still)) ep.still = still;
+    const t = text((/<p class="text-sm[^"]*">([\s\S]*?)<\/p>/i.exec(m[4]) || [])[1]);
+    if (t && !/^E\d+$/.test(t)) ep.title = t.slice(0, 200);
+    out.push(ep);
+  }
+  out.sort((a, b) => a.season - b.season || a.number - b.number);
+  return out;
+}
+
+async function slEpisodesOf(ref) {
+  const path = ref.slice(3);
+  const html = await slRead(path, { waitFor: "episodio-" });
+  let list = slEpisodes(html, path);
+  if (!list.length) throw kino.error("not_found", "la serie no tiene episodios en SoloLatino");
+  const series = {};
+  const ld = /"@type":"TVSeries"[\s\S]*?"name":"((?:[^"\\]|\\.)*)"/.exec(html);
+  if (ld) { try { series.title = JSON.parse(`"${ld[1]}"`); } catch (_) { /* the h1 below */ } }
+  if (!series.title) series.title = text((/<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html) || [])[1]);
+  const og = /<meta property="og:image" content="([^"]+)"/i.exec(html);
+  if (og && /^https?:\/\//.test(og[1])) series.poster = og[1];
+  const desc = /<meta name="description" content="([^"]*)"/i.exec(html);
+  if (desc) series.overview = decode(desc[1]).slice(0, 2000);
+  const imdb = (/imdb\.com\/title\/(tt\d{5,10})/.exec(html) || [])[1];
+  if (imdb) {
+    series.ids = { imdb };
+    storageSet(imdbKey(imdb), { ref }, IMDB_MEMORY_MS);
+  }
+  if (numberingStyle(list) === "absolute" && imdb && series.title) {
+    try {
+      const seasons = await tmdbSeasonsFor(imdb, series.title);
+      if (seasons) {
+        const remapped = [];
+        for (const e of list) {
+          const at = remapAbsolute(e.number, seasons);
+          if (at) remapped.push({ ...e, season: at[0], number: at[1] });
+        }
+        kino.log(`episodes ${ref}: absolute numbering remapped onto TMDB's ${seasons.length} seasons (${list.length} -> ${remapped.length})`);
+        list = remapped;
+      }
+      else kino.log(`episodes ${ref}: absolute numbering, but no complete TMDB season list: the site's numbers stay`);
+    } catch (e) {
+      kino.log(`episodes ${ref}: no TMDB seasons for the remap (${e.code || ""} ${e.message}); the site's numbers stay`);
+    }
+  }
+  kino.log(`episodes ${ref}: ${list.length}`);
+  return { series, episodes: list };
+}
+
+/** The episode or movie page's player tokens, per language group: `[{ lang, token, label }]`. */
+export function slTokens(html) {
+  const out = [];
+  const groups = /<div data-lang-group="([a-z]+)"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/gi;
+  let g;
+  while ((g = groups.exec(html))) {
+    const lang = g[1] === "mx" ? "LAT" : g[1] === "es" ? "ESP" : "SUB";
+    const btn = /<button[^>]*data-player-token="([^"]+)"[^>]*>([\s\S]*?)<\/button>/gi;
+    let b;
+    while ((b = btn.exec(g[2]))) out.push({ lang, token: b[1], label: text(b[2]).replace(/[^\p{L}\p{N} ]/gu, "").trim().toLowerCase() });
+  }
+  return out;
+}
+
+/** One player token to its player URL, the way the page's own script does (Sanctum: XSRF cookie, then POST). */
+async function slPlayerUrl(token, referer) {
+  await kino.fetch(`${SL.base}/sanctum/csrf-cookie`, { headers: { ...SL_HEADERS, Referer: referer }, timeoutMs: FETCH_TIMEOUT_MS });
+  const xsrf = decodeURIComponent(kino.cookies.get(SL.base + "/", "XSRF-TOKEN") || "");
+  const r = await kino.fetch(`${SL.base}/api/player-url`, {
+    method: "POST",
+    headers: { ...SL_HEADERS, Accept: "application/json", "Content-Type": "application/json", Referer: referer, Origin: SL.base, ...(xsrf ? { "X-XSRF-TOKEN": xsrf } : {}) },
+    body: { json: { t: token } }, timeoutMs: FETCH_TIMEOUT_MS,
+  });
+  if (!r.ok) {
+    kino.log(`sl player-url -> ${r.status}`);
+    return null;
+  }
+  const url = (r.json() || {}).url;
+  return /^https:\/\//.test(url || "") ? url : null;
+}
+
+/** sololatino's servers for an episode or movie: every player token resolved, embed69 players decrypted. */
+async function slServers(ref) {
+  const path = parseServerRef(ref).base.slice(3);
+  const pageUrl = SL.base + path;
+  const html = await slRead(path, { waitFor: "data-player-token" });
+  const tokens = slTokens(html);
+  kino.log(`resolve ${ref}: ${tokens.length} player token(s) [${tokens.map((t) => `${t.lang}/${t.label}`).join(", ")}]`);
+  const out = [];
+  for (const t of tokens.slice(0, 6)) {
+    const url = await slPlayerUrl(t.token, pageUrl).catch((e) => { kino.log(`sl player-url: ${e.code || ""} ${e.message}`); return null; });
+    if (!url) continue;
+    if (/^https:\/\/embed69\.org\//.test(url)) {
+      const r = await kino.fetch(url, { headers: { ...SL_HEADERS, Referer: pageUrl }, timeoutMs: FETCH_TIMEOUT_MS }).catch(() => null);
+      const found = r && r.ok ? embed69Servers(r.text()) : [];
+      if (!found.length) report("maraton:embed69", "no_servers", "site=sl");
+      kino.log(`embed69 ${safe(url)}: ${found.length} server(s) [${found.map((f) => `${f.lang}/${f.server}@${startHost(f.url)}`).join(", ")}]`);
+      for (const f of found) if (!out.some((o) => o.url === f.url)) out.push(f);
+    } else {
+      kino.log(`sl player ${safe(url)} (${t.label}): not an embed69 page, skipped`);
+    }
+  }
+  return out;
 }
 
 // ---------- telemetry ----------
@@ -324,6 +628,19 @@ export async function search(query) {
   const failed = [];
   const sites = activeSites();
   const lists = await Promise.all(sites.map(async (siteId) => {
+    if (siteId === SL.id) {
+      // One try only: each sololatino search may cost a page read (the suggest API first, though).
+      try {
+        const t0 = Date.now();
+        const found = await slSearch(tries[0]);
+        kino.log(`search sl: ${found.length} results in ${Date.now() - t0} ms`);
+        return found;
+      } catch (e) {
+        kino.log(`search sl: ${e.code || ""} ${e.message}`);
+        failed.push(e);
+        return [];
+      }
+    }
     if (siteId === AC.id) {
       for (const t of tries) {
         try {
@@ -408,7 +725,10 @@ async function catalogRow(siteId, kind, title, genre) {
   try {
     const items = siteId === AC.id
       ? acItems((await acGet(`/v1/items?kind=${kind}&page=1`)).items)
-      : cards(siteId, await page(SITES[siteId], SITES[siteId].catalog[kind] + "1"));
+      : siteId === SL.id
+        // Home rows are also asked for by Kino on its own: a plain read only, never the hidden browser.
+        ? slCards(await slRead(SL_CATALOG[kind] + "1", { allowPage: false }))
+        : cards(siteId, await page(SITES[siteId], SITES[siteId].catalog[kind] + "1"));
     return items.length ? { id: `${siteId}-${kind}`, title, items, ref: `row|${siteId}|${kind}`, genre } : null;
   } catch (e) {
     kino.log(`row ${siteId}/${kind}: ${e.code || ""} ${e.message}`);
@@ -437,9 +757,9 @@ async function frontRows() {
  * vocabulary (contract.json "genres"): it is what lines rows up with other plugins' in Categorías.
  */
 const ROWS = {
-  series: [{ siteId: "sk", kind: "serie", title: "Series" }, { siteId: "ac", kind: "tvshow", title: "Series recientes" }],
-  anime: [{ siteId: "sk", kind: "anime", title: "Anime" }, { siteId: "ac", kind: "anime", title: "Anime reciente" }],
-  peliculas: [{ siteId: "sk", kind: "pelicula", title: "Películas" }, { siteId: "ac", kind: "movie", title: "Películas recientes" }],
+  series: [{ siteId: "sk", kind: "serie", title: "Series" }, { siteId: "ac", kind: "tvshow", title: "Series recientes" }, { siteId: "sl", kind: "serie", title: "Series en latino" }],
+  anime: [{ siteId: "sk", kind: "anime", title: "Anime" }, { siteId: "ac", kind: "anime", title: "Anime reciente" }, { siteId: "sl", kind: "anime", title: "Anime en latino" }],
+  peliculas: [{ siteId: "sk", kind: "pelicula", title: "Películas" }, { siteId: "ac", kind: "movie", title: "Películas recientes" }, { siteId: "sl", kind: "pelicula", title: "Películas en latino" }],
 };
 
 async function rowsOf(groups, sites) {
@@ -574,6 +894,12 @@ export async function browse(ref, cursor) {
     return items.length ? { items, next: String(n + 1) } : { items };
   }
   const [, siteId, kind] = String(ref).split("|");
+  if (siteId === SL.id) {
+    if (!SL_CATALOG[kind]) throw kino.error("not_found", "fila desconocida");
+    const n = Math.max(1, parseInt(cursor || "1", 10) || 1);
+    const items = slCards(await slRead(SL_CATALOG[kind] + n, { waitFor: 'class="card"' }));
+    return items.length ? { items, next: String(n + 1) } : { items };
+  }
   if (siteId === AC.id) {
     if (!AC_KINDS.includes(kind)) throw kino.error("not_found", "fila desconocida");
     const n = Math.max(1, parseInt(cursor || "1", 10) || 1);
@@ -640,6 +966,7 @@ export function parseEpisodes(siteId, html) {
 
 export async function episodes(ref) {
   if (String(ref).startsWith("ac|")) return acEpisodes(String(ref));
+  if (String(ref).startsWith("sl|")) return slEpisodesOf(String(ref));
   const { siteId, site, path } = splitRef(ref);
   const html = await page(site, path);
   const list = parseEpisodes(siteId, html);
@@ -1133,7 +1460,8 @@ function streamOf(got, server, others = [], ref = "", failed = new Set()) {
 
 export async function resolve(ref, options) {
   const isAc = String(ref).startsWith("ac|");
-  const { siteId, site, path } = isAc ? { siteId: AC.id, site: null, path: "" } : splitRef(ref);
+  const isSl = String(ref).startsWith("sl|");
+  const { siteId, site, path } = isAc ? { siteId: AC.id, site: null, path: "" } : isSl ? { siteId: SL.id, site: null, path: "" } : splitRef(ref);
   const t0 = Date.now();
   // A retry (the CDN said 401/403/409) or a normal call: a retry never gets the cached copy back.
   const keepLinks = configValue("keepLinks", true) !== false;
@@ -1154,7 +1482,9 @@ export async function resolve(ref, options) {
   const failed = failedServers(siteId);
   let fast;
   let fallbackPages = [];
-  if (isAc) {
+  if (isSl) {
+    fast = rankServers(await slServers(ref), lang, remembered, chosen);
+  } else if (isAc) {
     // allcalidad lists its embeds itself: no page to read, no fast path needed.
     fast = rankServers(acServers(await acGet(acPlaybackPath(ref))), lang, remembered, chosen);
     kino.log(`resolve ${ref}: ${fast.length} embed(s) [${fast.map((f) => `${f.lang}/${f.server}@${startHost(f.url)}`).join(", ")}]`);
@@ -1190,7 +1520,7 @@ export async function resolve(ref, options) {
     const timeoutMs = Math.min(captureTimeout(targets.length - p - 1), left);
     kino.log(`capture ${safe(target.url)} (timeout ${timeoutMs} ms)`);
     try {
-      const got = await kino.browser.capture(target.url, { timeoutMs, headers: { Referer: (site ? site.base : "https://allcalidad.re") + "/" } });
+      const got = await kino.browser.capture(target.url, { timeoutMs, headers: { Referer: (site ? site.base : isSl ? SL.base : "https://allcalidad.re") + "/" } });
       kino.log(`capture ok in ${Date.now() - started} ms: ${got.media.length} media [${got.media.map((m) => safe(m.url)).join(", ")}], ${got.subtitles.length} subtitles`);
       got.media = await filmMedia(got.media);
       if (!got.media.length) {
@@ -1216,8 +1546,9 @@ export async function resolve(ref, options) {
       failedHere.add(target.url);
       if (target.server && e.code !== "busy" && e.code !== "browser_unavailable" && e.code !== "not_allowed") markServer(siteId, target, true);
       kino.log(`capture failed after ${Date.now() - started} ms on ${startHost(target.url)}: ${e.code || ""} ${e.message}`);
-      // Which server's player let us down, by our own name for it (never its URL).
-      report("maraton:capture", e.code || "error", `server=${serverName(target)}`, `ms=${Date.now() - started}`);
+      // Which server's player let us down, by our own name for it (never its URL). A device without a WebView, a
+      // busy browser or an unapproved plugin is not the server's fault: not reported.
+      if (!["browser_unavailable", "busy", "not_allowed"].includes(e.code)) report("maraton:capture", e.code || "error", `server=${serverName(target)}`, `ms=${Date.now() - started}`);
       // No WebView, or the person never approved it: no other page will do better.
       if (e.code === "browser_unavailable" || e.code === "not_allowed") break;
     }
@@ -1251,7 +1582,7 @@ export async function meta(query) {
 
 // ---------- the settings form: status line, actions, validation ----------
 
-const SITE_NAME = { sk: "SeriesKao", ac: "AllCalidad" };
+const SITE_NAME = { sk: "SeriesKao", ac: "AllCalidad", sl: "SoloLatino" };
 
 /** The "Estado" line: active sites, the language, and the server that last produced a video on each site. */
 export async function settingsStatus() {
@@ -1270,11 +1601,12 @@ export async function settingsStatus() {
 async function checkSite(id) {
   const t0 = Date.now();
   try {
-    if (id === AC.id) await acGet("/v1/items?kind=movie&page=1");
+    if (id === SL.id) await slRead(SL_CATALOG.serie + "1", { allowPage: false });
+    else if (id === AC.id) await acGet("/v1/items?kind=movie&page=1");
     else await page(SITES.sk, "/");
     return `${SITE_NAME[id]}: responde (${Date.now() - t0} ms)`;
   } catch (e) {
-    return `${SITE_NAME[id]}: ${/verificaci/.test(e.userMessage || "") ? "pide verificación" : "no responde"}`;
+    return `${SITE_NAME[id]}: ${/verificaci|dejando entrar/.test(e.userMessage || "") ? "pide verificación" : "no responde"}`;
   }
 }
 
@@ -1305,7 +1637,7 @@ export async function action(key) {
 export async function validateSettings(values) {
   const v = values || {};
   if (ALL_SITES.every((id) => v[SITE_SETTING[id]] === false)) {
-    return { useAllcalidad: "Deja al menos un sitio activo" };
+    return { useSololatino: "Deja al menos un sitio activo" };
   }
   return null;
 }

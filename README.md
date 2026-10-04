@@ -8,7 +8,7 @@ pasa al reproductor el video que esa página encuentra. No hay servidores interm
 
 ## Qué trae
 
-- **Buscar**: series, anime y películas en dos catálogos (SeriesKao y AllCalidad). Los títulos de AllCalidad traen
+- **Buscar**: series, anime y películas en tres catálogos (SeriesKao, AllCalidad y SoloLatino). Los títulos de AllCalidad traen
   su ficha de TMDB, así que Kino les completa reparto, clasificación y más.
 - **Inicio**: Nuevos episodios, Recién agregado, Series, Anime, Películas, Películas recientes y Series recientes
   (con "Ver más").
@@ -25,30 +25,34 @@ pasa al reproductor el video que esa página encuentra. No hay servidores interm
 En Kino: **Ajustes ▸ Plugins ▸ Agregar**, escribe `xuper-plugin/maraton` y toca **Agregar**. Antes de instalar vas
 a ver con qué sitios se conecta y qué permisos pide.
 
-Necesita Kino 0.9.50 o más nueva (plugins de apiVersion 6 con navegador oculto).
+Desde la versión 0.6 necesita Kino 0.9.51 o más nueva (plugins de apiVersion 7, que pueden leer páginas con el
+navegador oculto). Para Kino 0.9.50 está la versión 0.5.7 (etiqueta `v0.5.7`), sin SoloLatino.
 
 ## Permisos que pide, y por qué
 
-- **"Puede abrir páginas web ocultas para encontrar el video"** (en rojo). Los sitios no ponen la dirección del video
-  en su HTML: la arma el reproductor de la página cuando corre. Por eso, solo cuando tocas reproducir (o cuando una
-  descarga arranca), Kino abre esa página en un navegador oculto de tu aparato, sin cookies de nada más, y se queda
-  con la dirección del video que la página pide. La página no puede tocar tu red local, abrir ventanas ni descargar
-  archivos, y se borra todo al cerrarse.
+- **"Puede abrir páginas web ocultas para mostrar contenido y encontrar el video"** (en rojo). Los sitios no ponen
+  la dirección del video en su HTML: la arma el reproductor de la página cuando corre. Por eso, cuando tocas
+  reproducir (o cuando una descarga arranca), Kino abre esa página en un navegador oculto de tu aparato, sin cookies
+  de nada más, y se queda con la dirección del video que la página pide. Y si SoloLatino responde con su revisión de
+  Cloudflare a una lectura normal, el navegador oculto lee esa página (solo mientras la estás usando; Kino nunca
+  resuelve captchas: si la página pide confirmar que eres humano, SoloLatino descansa 15 minutos y las otras fuentes
+  siguen). La página no puede tocar tu red local, abrir ventanas ni descargar archivos, y se borra todo al cerrarse.
 - **"Puede reproducir video desde cualquier servidor que indique"** (en rojo). El video vive en el servidor que el
   reproductor de cada página elija, y esos cambian; nunca uno de tu red local.
 - **"Puede descargar videos para verlos sin conexión"**.
 - **"Comparte registros de errores con Kino para corregir fallas"**: cuando algo falla (un sitio caído, una
   verificación, un servidor que no entrega el video), sale un aviso con códigos —qué sitio, qué servidor, cuánto
   tardó—, nunca direcciones, títulos ni lo que escribiste.
-- **Se conecta con**: `serieskao.top`, `tmdb.allcalidad.re` (los catálogos) y `morencius.com`,
-  `hglink.to`, `voe.sx`, `vimeos.net`, `goodstream.one` (los reproductores donde arranca la búsqueda del video).
+- **Se conecta con**: `serieskao.top`, `tmdb.allcalidad.re`, `sololatino.net` (los catálogos) y `embed69.org`,
+  `morencius.com`, `hglink.to`, `voe.sx`, `vimeos.net`, `goodstream.one` (los reproductores donde arranca la búsqueda
+  del video).
 
 ## Su propia página y sus géneros
 
 - **Página de Maratón**: un chip en Inicio (celular) o una entrada en la barra lateral (TV), con pestañas **Series**,
   **Anime**, **Películas** y **Géneros**, en los colores verdes del plugin.
 - **Categorías ▸ Maratón**: 22 géneros (Acción, Comedia, Drama, Terror, Animación, Doramas…), cada uno con lo que
-  tienen los dos sitios mezclado, página por página.
+  tienen SeriesKao y AllCalidad mezclado, página por página.
 
 ## Ajustes
 
@@ -56,7 +60,7 @@ En **Ajustes ▸ Maratón** (o Plugins ▸ Maratón ▸ Configurar):
 
 | Ajuste | Qué cambia |
 | --- | --- |
-| Usar SeriesKao / Usar AllCalidad | De qué sitios salen la búsqueda, Inicio, la página y los géneros. No deja apagar los dos. |
+| Usar SeriesKao / Usar AllCalidad / Usar SoloLatino | De qué sitios salen la búsqueda, Inicio, la página y los géneros. No deja apagar los tres. |
 | Idioma preferido | Latino (por defecto), Castellano o Subtitulado: primero se prueban los servidores de ese idioma. |
 | Probar primero | Un servidor que quieres que se pruebe antes que los demás (dentro de tu idioma). Por defecto, el que funcionó la última vez. |
 | Recordar enlaces unas horas | Si vuelves a abrir algo que ya viste hoy, arranca sin buscar de nuevo. Apágalo si un video se queda pegado. |
@@ -73,7 +77,7 @@ En **Ajustes ▸ Maratón** (o Plugins ▸ Maratón ▸ Configurar):
 
 Maratón usa casi todo lo que ofrece el SDK de plugins de Kino; `plugin.js` está comentado para leerse de arriba abajo.
 
-- **Manifiesto** (`kino-plugin.json`): `apiVersion` 6, `hosts` exactos (nada de comodines), `streamHosts: "any"` porque
+- **Manifiesto** (`kino-plugin.json`): `apiVersion` 7 (la línea 0.5 es la 6), `hosts` exactos (nada de comodines), `streamHosts: "any"` porque
   el video vive en el CDN que elija cada reproductor, `browser: true`, `download`, `meta`, `categories` de mercado,
   `section`, `theme` (contrastes revisados con `run.mjs . theme`), ícono propio y ajustes de todos los tipos útiles
   (`section`, `toggle`, `select`, `status`, `action`).

@@ -47,7 +47,8 @@ const reports = [];
 const store = new Map();
 const ttls = new Map();
 const config = {};
-beforeEach(() => { reports.length = 0; store.clear(); ttls.clear(); for (const k of Object.keys(config)) delete config[k]; });
+// SoloLatino is off by default in these tests (its own tests switch it on): the older tests are about two sites.
+beforeEach(() => { reports.length = 0; store.clear(); ttls.clear(); for (const k of Object.keys(config)) delete config[k]; config.useSololatino = false; });
 const plugin = await import("../plugin.js");
 
 test("search reads serieskao's cards and survives the other site failing", async () => {
@@ -473,7 +474,7 @@ test("Revisar sitios says which site answers; Borrar enlaces guardados empties t
   pages["https://serieskao.top/"] = fixture("sk-home.html");
   try {
     const r = await plugin.action("check");
-    assert.match(r.message, /^SeriesKao: responde \(\d+ ms\) · AllCalidad: no responde$/);
+    assert.match(r.message, /^SeriesKao: responde \(\d+ ms\) · AllCalidad: no responde · SoloLatino: no responde$/);
     assert.equal(r.refresh, true);
   } finally {
     delete pages["https://serieskao.top/"];
@@ -486,7 +487,8 @@ test("Revisar sitios says which site answers; Borrar enlaces guardados empties t
 });
 
 test("validateSettings refuses switching every site off, and only that", async () => {
-  assert.deepEqual(await plugin.validateSettings({ useSerieskao: false, useAllcalidad: false }), { useAllcalidad: "Deja al menos un sitio activo" });
+  assert.deepEqual(await plugin.validateSettings({ useSerieskao: false, useAllcalidad: false, useSololatino: false }), { useSololatino: "Deja al menos un sitio activo" });
+  assert.equal(await plugin.validateSettings({ useSerieskao: false, useAllcalidad: false }), null); // SoloLatino still on
   assert.equal(await plugin.validateSettings({ useSerieskao: false, useAllcalidad: true }), null);
   assert.equal(await plugin.validateSettings({}), null);
 });
@@ -722,4 +724,168 @@ test("hero: a featured title's backdrop first, else a poster, else no hero at al
   assert.match(plugin.heroOf([{ items: [{ title: "A", poster: "https://p/a.jpg" }] }]).text, /subtitulada/);
   assert.equal(plugin.heroOf([{ items: [{ title: "A" }] }]), null);
   assert.equal(plugin.heroOf([]), null);
+});
+
+// ---------- SoloLatino (apiVersion 7) ----------
+
+const SLB = "https://sololatino.net";
+const NARUTO_SEASONS = [{ season: 0, count: 2 }, { season: 1, count: 52 }, { season: 2, count: 52 }, { season: 3, count: 54 }, { season: 4, count: 62 }];
+
+test("sololatino cards: series, anime (badge) and movies from the real catalog pages", () => {
+  const series = plugin.slCards(fixture("sl-series.html"));
+  assert.ok(series.length >= 30);
+  assert.ok(series.every((i) => i.ref.startsWith("sl|/serie/") && i.kind === "series"));
+  assert.ok(series.some((i) => i.year === "2026"));
+  const anime = plugin.slCards(fixture("sl-animes.html"));
+  assert.ok(anime.length >= 30 && anime.every((i) => i.genres && i.genres[0] === "Anime"));
+  const movies = plugin.slCards(fixture("sl-peliculas-2.html"));
+  assert.ok(movies.length >= 30 && movies.every((i) => i.kind === "movie" && i.ref.startsWith("sl|/pelicula/")));
+});
+
+test("sololatino search: the suggest API, cached per text; a challenge on it falls back to the page, never for short text", async () => {
+  config.useSololatino = true; config.useSerieskao = false; config.useAllcalidad = false;
+  const asked = [];
+  const saved = kino.fetch;
+  kino.fetch = async (url, o) => {
+    asked.push(url);
+    if (url.startsWith(`${SLB}/api/search/suggest`)) return { ok: true, status: 200, text: () => "", json: () => JSON.parse(fixture("sl-suggest-dark.json")) };
+    return saved(url, o);
+  };
+  try {
+    const found = await plugin.search({ q: "dark" });
+    assert.ok(found.some((i) => i.ref === "sl|/serie/dark" && i.year === "2017"));
+    assert.ok(found.some((i) => i.kind === "movie"));
+    await plugin.search({ q: "dark" });
+    assert.equal(asked.filter((u) => u.includes("suggest")).length, 1); // cached
+  } finally {
+    kino.fetch = saved;
+  }
+});
+
+function challengeFetch() {
+  return async (url) => ({ ok: false, status: 403, text: () => fixture("sl-challenge.html"), json: () => ({}) });
+}
+
+test("a Cloudflare challenge is read through the hidden browser, cached 5 min; Home rows never open it", async () => {
+  const saved = kino.fetch;
+  const pagesRead = [];
+  kino.fetch = challengeFetch();
+  kino.browser.page = async (url, o) => { pagesRead.push([url, o.timeoutMs]); return { html: fixture("sl-series.html"), finalUrl: url, status: 200, truncated: false }; };
+  try {
+    const html = await plugin.slRead("/series?page=1");
+    assert.match(html, /class="card"/);
+    await plugin.slRead("/series?page=1");
+    assert.equal(pagesRead.length, 1);
+    assert.equal(pagesRead[0][1], 10000);
+    assert.equal(ttls.get("slpage:/series?page=1"), 5 * 60 * 1000);
+    await assert.rejects(plugin.slRead("/animes?page=1", { allowPage: false }), (e) => e.code === "unavailable");
+    assert.equal(pagesRead.length, 1);
+    assert.ok(reports.some((r) => r[1] === "cloudflare" && r[2] === "site=sl"));
+  } finally {
+    kino.fetch = saved;
+    delete kino.browser.page;
+  }
+});
+
+test("blocked or timeout from the page read pauses sololatino 15 min; the other sites keep working", async () => {
+  const saved = kino.fetch;
+  let pageCalls = 0;
+  kino.fetch = async (url, o) => (url.startsWith(SLB) ? challengeFetch()(url) : saved(url, o));
+  kino.browser.page = async () => { pageCalls++; throw Object.assign(new Error("human check"), { code: "blocked" }); };
+  try {
+    await assert.rejects(plugin.slRead("/serie/dark"), (e) => e.code === "unavailable" && /SoloLatino no está dejando entrar/.test(e.userMessage));
+    assert.ok(plugin.slIsDown());
+    assert.equal(ttls.get("sitedown:sl"), 15 * 60 * 1000);
+    await assert.rejects(plugin.slRead("/serie/naruto"));
+    assert.equal(pageCalls, 1); // paused: no second page read
+    config.useSololatino = true; config.useAllcalidad = false;
+    const found = await plugin.search({ q: "dark" });
+    assert.ok(found.length > 0 && found.every((i) => i.ref.startsWith("sk|")));
+    assert.ok(reports.some((r) => r[0] === "maraton:page" && r[1] === "blocked"));
+  } finally {
+    kino.fetch = saved;
+    delete kino.browser.page;
+  }
+});
+
+test("numbering: Naruto's absolute numbering is detected and remapped onto TMDB's seasons (specials skipped)", () => {
+  const list = plugin.slEpisodes(fixture("sl-serie-naruto.html"), "/serie/naruto");
+  assert.equal(list.length, 219);
+  assert.equal(list[0].still.startsWith("https://image.tmdb.org/"), true);
+  assert.equal(list[0].title, "Entra en escena Naruto Uzumaki");
+  assert.equal(plugin.numberingStyle(list), "absolute");
+  assert.deepEqual(plugin.remapAbsolute(1, NARUTO_SEASONS), [1, 1]);
+  assert.deepEqual(plugin.remapAbsolute(53, NARUTO_SEASONS), [2, 1]);
+  assert.deepEqual(plugin.remapAbsolute(220, NARUTO_SEASONS), [4, 62]);
+  assert.equal(plugin.remapAbsolute(221, NARUTO_SEASONS), null);
+  assert.equal(plugin.numberingStyle([{ season: 1, number: 1 }, { season: 2, number: 1 }]), "relative");
+});
+
+test("sololatino episodes: absolute shows get TMDB's seasons through allcalidad's data; Dark stays relative", async () => {
+  pages[`${SLB}/serie/naruto`] = fixture("sl-serie-naruto.html");
+  pages[`${SLB}/serie/dark`] = fixture("sl-serie-dark.html");
+  const AC = "https://tmdb.allcalidad.re";
+  pages[`${AC}/v1/search?q=Naruto`] = JSON.stringify({ items: [{ kind: "anime", tmdb_id: 46260, title: "Naruto", imdb_id: "tt0409591" }] });
+  pages[`${AC}/v1/items/anime/46260`] = JSON.stringify({ item: { number_of_seasons: 4, episode_seasons: NARUTO_SEASONS } });
+  try {
+    const n = await plugin.episodes("sl|/serie/naruto");
+    assert.deepEqual(n.series.ids, { imdb: "tt0409591" });
+    const e53 = n.episodes.find((e) => e.ref.endsWith("/temporada-2/episodio-53"));
+    assert.deepEqual([e53.season, e53.number], [2, 1]);
+    // allcalidad listing only the seasons it has (measured: Naruto 1 of 4): no remap, the site's numbers stay.
+    store.clear();
+    pages[`${AC}/v1/items/anime/46260`] = JSON.stringify({ item: { number_of_seasons: 4, episode_seasons: [{ season: 1, count: 52 }] } });
+    const partial = await plugin.episodes("sl|/serie/naruto");
+    assert.equal(partial.episodes.length, 219);
+    const d = await plugin.episodes("sl|/serie/dark");
+    assert.equal(d.episodes[0].ref, "sl|/serie/dark/temporada-1/episodio-1");
+    assert.equal(plugin.numberingStyle(d.episodes), "relative");
+  } finally {
+    for (const k of [`${SLB}/serie/naruto`, `${SLB}/serie/dark`, `${AC}/v1/search?q=Naruto`, `${AC}/v1/items/anime/46260`]) delete pages[k];
+  }
+});
+
+test("sololatino player tokens per language, resolved through Sanctum, embed69 decrypted, then captured", async () => {
+  assert.deepEqual(plugin.slTokens(fixture("sl-ep-dark-1x01.html")).map((t) => [t.lang, t.label]), [["LAT", "premium"], ["LAT", "uqload"]]);
+  const saved = kino.fetch;
+  const posted = [];
+  kino.fetch = async (url, o = {}) => {
+    if (url === `${SLB}/serie/dark/temporada-1/episodio-1`) return { ok: true, status: 200, text: () => fixture("sl-ep-dark-1x01.html") };
+    if (url === `${SLB}/sanctum/csrf-cookie`) return { ok: true, status: 204, text: () => "" };
+    if (url === `${SLB}/api/player-url`) {
+      posted.push(o);
+      const second = posted.length === 2;
+      return { ok: true, status: 200, text: () => "", json: () => ({ url: second ? "https://embed69.org/f/tt5753856-1x01" : "https://player.pelisserieshoy.com/f/tt5753856-1x01", type: "iframe" }) };
+    }
+    if (url === "https://embed69.org/f/tt5753856-1x01") return { ok: true, status: 200, text: () => fixture("sl-embed69-f-dark-1x01.html") };
+    return saved(url, o);
+  };
+  kino.cookies = { get: (u, name) => (name === "XSRF-TOKEN" ? "abc%3D" : null) };
+  captured.length = 0;
+  captureAnswer = async () => ({ media: [{ url: "https://cdn.example/master.m3u8", headers: {} }], subtitles: [], finalUrl: "" });
+  try {
+    const st = await plugin.resolve("sl|/serie/dark/temporada-1/episodio-1");
+    assert.equal(st.url, "https://cdn.example/master.m3u8");
+    assert.equal(posted[0].method, "POST");
+    assert.equal(posted[0].headers["X-XSRF-TOKEN"], "abc=");
+    assert.ok(posted[0].body.json.t.startsWith("eyJ"));
+    assert.ok(captured.length > 0 && !captured[0].includes("pelisserieshoy"));
+  } finally {
+    kino.fetch = saved;
+    delete kino.cookies;
+  }
+});
+
+test("Usar SoloLatino off: sololatino is never read", async () => {
+  const asked = [];
+  const saved = kino.fetch;
+  kino.fetch = async (url, o) => { asked.push(url); return saved(url, o); };
+  try {
+    config.useSololatino = false;
+    await plugin.search({ q: "dark" }).catch(() => []);
+    await plugin.home();
+    assert.ok(!asked.some((u) => u.startsWith(SLB)));
+  } finally {
+    kino.fetch = saved;
+  }
 });
