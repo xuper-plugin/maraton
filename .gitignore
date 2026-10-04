@@ -3,3 +3,4 @@
 .kino-secrets.json
 sdk/config.json
 *.pem
+keys/
