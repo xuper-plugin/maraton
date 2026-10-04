@@ -62,18 +62,33 @@ function safe(url) {
   return m ? m[1] + m[2].slice(0, 100) : "?";
 }
 
-function looksLikeChallenge(html) {
-  return /just a moment/i.test(html || "");
+/**
+ * A Cloudflare (or similar) interstitial instead of the page. Not the passive "challenge-platform" beacon some zones
+ * add to every real page (hacktorrent-mirror measured that on sololatino): the interstitial's own title or its
+ * `_cf_chl_opt` bootstrap.
+ */
+export function looksLikeChallenge(html) {
+  const h = String(html || "");
+  return /<title>\s*just a moment/i.test(h) || /_cf_chl_opt/.test(h) || /<title>\s*attention required/i.test(h);
 }
 
 async function page(site, path) {
   const t0 = Date.now();
-  const r = await kino.fetch(abs(site, path), { headers: { "User-Agent": UA, Accept: "text/html" } });
+  let r;
+  try {
+    r = await kino.fetch(abs(site, path), { headers: { "User-Agent": UA, Accept: "text/html" }, timeoutMs: FETCH_TIMEOUT_MS });
+  } catch (e) {
+    kino.log(`fetch ${safe(abs(site, path))}: ${e.code || ""} ${e.message} after ${Date.now() - t0} ms`);
+    throw kino.error("unavailable", `${site.name}: ${e.code || "network"}`, { userMessage: `${site.name} no responde. Vuelve a intentar en un rato.` });
+  }
   kino.log(`fetch ${safe(abs(site, path))} -> ${r.status} in ${Date.now() - t0} ms`);
-  if (!r.ok) throw kino.error(r.status === 404 ? "not_found" : "unavailable", `${site.name} respondió ${r.status}`);
+  if (!r.ok) {
+    throw kino.error(r.status === 404 ? "not_found" : r.status === 429 ? "rate_limited" : "unavailable", `${site.name} respondió ${r.status}`,
+      { userMessage: r.status === 404 ? `${site.name} ya no tiene esta página.` : `${site.name} no está respondiendo bien (${r.status}).` });
+  }
   const html = r.text();
   // pelisplus/sololatino sit behind Cloudflare at times: a challenge page is "unavailable", never parsed as content.
-  if (looksLikeChallenge(html)) throw kino.error("unavailable", `${site.name} pide verificación de Cloudflare`);
+  if (looksLikeChallenge(html)) throw kino.error("unavailable", `${site.name} pide verificación de Cloudflare`, { userMessage: `${site.name} está pidiendo una verificación que Kino no puede pasar.` });
   return html;
 }
 
@@ -301,6 +316,8 @@ export function pagesToOpen(siteId, episodeUrl, servers) {
 }
 
 const MAX_PAGES = 3;
+/** Every page fetch: a site that hangs must not eat resolve's budget (kino.fetch's own default is 15 s). */
+const FETCH_TIMEOUT_MS = 10000;
 const CAPTURE_MS = 25000;
 const CAPTURE_MS_WITH_MORE = 15000;
 
@@ -407,11 +424,30 @@ function serverRank(f) {
   return hit ? hit.rank : UNKNOWN_SERVER_RANK;
 }
 
-/** Latino first, then by [SERVER_PREFERENCE]; the page's own order breaks ties. */
-export function rankServers(list) {
+/** The three audio families an embed69 section's `video_language` falls into, in the default order. */
+export const LANGS = ["lat", "esp", "sub"];
+const LANG_LABEL = { lat: "Latino", esp: "Castellano", sub: "Subtitulado" };
+
+/** `LAT`, `ESP`/`CAST`, `SUB`/`VOSE`… → `lat` / `esp` / `sub`; anything else counts as `sub` (original audio). */
+export function langOf(raw) {
+  const v = String(raw || "");
+  if (/lat/i.test(v)) return "lat";
+  if (/esp|cas|spa/i.test(v)) return "esp";
+  return "sub";
+}
+
+/**
+ * The person's language first ("Idioma preferido", default Latino), then the other two in [LANGS] order; within a
+ * language the server that last produced a video on this site ([remembered]), then [SERVER_PREFERENCE]; the page's
+ * own order breaks ties.
+ */
+export function rankServers(list, preferred = "lat", remembered = "") {
+  const langOrder = [preferred, ...LANGS.filter((l) => l !== preferred)];
+  const langRank = (f) => { const i = langOrder.indexOf(langOf(f.lang)); return i < 0 ? LANGS.length : i; };
+  const memo = (f) => (remembered && (f.server || "").toLowerCase() === remembered ? 0 : 1);
   return list
     .map((f, i) => ({ f, i }))
-    .sort((a, b) => ((/lat/i.test(b.f.lang) ? 1 : 0) - (/lat/i.test(a.f.lang) ? 1 : 0)) || (serverRank(a.f) - serverRank(b.f)) || (a.i - b.i))
+    .sort((a, b) => (langRank(a.f) - langRank(b.f)) || (memo(a.f) - memo(b.f)) || (serverRank(a.f) - serverRank(b.f)) || (a.i - b.i))
     .map((x) => x.f);
 }
 
@@ -425,7 +461,13 @@ async function fastServers(site, episodeUrl, servers) {
   const out = [];
   for (const s of servers.filter((u) => u.startsWith(site.base))) {
     const t0 = Date.now();
-    const r = await kino.fetch(s, { headers: { "User-Agent": UA, Accept: "text/html", Referer: episodeUrl } });
+    let r;
+    try {
+      r = await kino.fetch(s, { headers: { "User-Agent": UA, Accept: "text/html", Referer: episodeUrl }, timeoutMs: FETCH_TIMEOUT_MS });
+    } catch (e) {
+      kino.log(`embed69 ${safe(s)}: ${e.code || ""} ${e.message}`);
+      continue;
+    }
     if (!r.ok) {
       kino.log(`embed69 ${safe(s)} -> ${r.status}`);
       continue;
@@ -437,46 +479,139 @@ async function fastServers(site, episodeUrl, servers) {
   return out;
 }
 
-export async function resolve(ref) {
+// ---------- what resolve remembers (kino.storage) ----------
+
+const STREAM_CACHE_MAX_MS = 4 * 3600 * 1000;
+const STREAM_CACHE_UNKNOWN_MS = 30 * 60 * 1000;
+const EXPIRY_MARGIN_S = 10 * 60;
+const MAX_EXPIRES_S = 86400;
+const MIN_EXPIRES_S = 30;
+
+/**
+ * When a captured URL stops working, in seconds from [nowS], or null when it does not say. The CDNs these embeds use
+ * put a Unix time in the path (`/stream/<token>/<x>/1791135524/<id>/master.m3u8`): measured 2026-10-04, that time was
+ * 12 h after the capture and the URL answered until then. A time in the past or more than a week ahead is not one.
+ */
+export function expiresInOf(url, nowS = Math.floor(Date.now() / 1000)) {
+  const path = String(url).split(/[?#]/)[0];
+  const times = (path.match(/(?:^|\/)(1\d{9})(?=\/|$)/g) || []).map((t) => parseInt(t.replace("/", ""), 10));
+  const t = times.find((x) => x > nowS + MIN_EXPIRES_S && x < nowS + 7 * 86400);
+  return t ? Math.min(MAX_EXPIRES_S, t - nowS) : null;
+}
+
+function storageGet(key) {
+  try {
+    const v = kino.storage.get(key);
+    return v == null ? null : JSON.parse(v);
+  } catch (_) {
+    return null;
+  }
+}
+
+function storageSet(key, value, ttlMs) {
+  try { kino.storage.set(key, JSON.stringify(value), ttlMs ? { ttlMs: Math.max(1, Math.floor(ttlMs)) } : undefined); } catch (e) { kino.log(`storage: ${e.message}`); }
+}
+
+function storageRemove(key) {
+  try { kino.storage.remove(key); } catch (_) { /* nothing to drop */ }
+}
+
+const streamKey = (ref) => "stream:" + ref;
+const serverKey = (siteId) => "server:" + siteId;
+
+/** The cached stream's own expiry, rewritten for how much of it is left; null when it is (nearly) gone. */
+export function fromCache(entry, nowMs = Date.now()) {
+  if (!entry || !entry.stream || !entry.until || entry.until <= nowMs) return null;
+  const stream = { ...entry.stream };
+  if (entry.expiresAtMs) {
+    const left = Math.floor((entry.expiresAtMs - nowMs) / 1000);
+    if (left < MIN_EXPIRES_S) return null;
+    stream.expiresInSeconds = Math.min(MAX_EXPIRES_S, left);
+  }
+  return stream;
+}
+
+function preferredLang() {
+  try {
+    const v = kino.config.get("lang");
+    return LANGS.includes(v) ? v : "lat";
+  } catch (_) {
+    return "lat";
+  }
+}
+
+// ---------- resolve ----------
+
+function streamOf(got, server) {
+  const [first, ...rest] = got.media;
+  const stream = { url: first.url, headers: first.headers };
+  if (first.mime) stream.mime = first.mime;
+  if (rest.length) stream.alternatives = rest.slice(0, 8).map((m) => (m.mime ? { url: m.url, mime: m.mime, headers: m.headers } : { url: m.url, headers: m.headers }));
+  // The embed's own subtitle tracks: these sites only carry Spanish ones; the label says which audio they came with.
+  const label = server && server.lang ? `Español (${LANG_LABEL[langOf(server.lang)]})` : "Español";
+  const subs = (got.subtitles || []).slice(0, 10).map((s) => ({ lang: s.lang || "es", label, url: s.url, format: /\.srt(\?|$)/i.test(s.url) ? "srt" : "vtt" }));
+  if (subs.length) stream.subtitles = subs;
+  const exp = expiresInOf(first.url);
+  if (exp) stream.expiresInSeconds = exp;
+  return stream;
+}
+
+export async function resolve(ref, options) {
   const { siteId, site, path } = splitRef(ref);
+  const t0 = Date.now();
+  // A retry (the CDN said 401/403/409) or a normal call: a retry never gets the cached copy back.
+  if (options && options.retry) {
+    storageRemove(streamKey(ref));
+    kino.log(`resolve ${ref}: retry ${options.retry.reason || ""} ${options.retry.status || ""}, cache dropped`);
+  } else {
+    const cached = fromCache(storageGet(streamKey(ref)));
+    if (cached) {
+      kino.log(`resolve ${ref}: cached stream ${safe(cached.url)} (${cached.expiresInSeconds || "?"} s left)`);
+      return cached;
+    }
+  }
   const episodeUrl = abs(site, path);
   const html = await page(site, path);
   const servers = serversOf(siteId, html);
   kino.log(`resolve ${ref}: servers [${servers.map(safe).join(", ")}]`);
   // Fast path: decrypt embed69's server list and open each embed host's page directly (its player is then the top
   // document, so autoplay reaches it). Without it, fall back to opening the episode page and digging through frames.
-  const fast = rankServers(await fastServers(site, episodeUrl, servers));
-  const pages = fast.length
-    ? fast.slice(0, MAX_PAGES).map((f) => f.url)
-    : pagesToOpen(siteId, episodeUrl, servers).filter((u) => Object.values(SITES).some((s) => startHost(u) === startHost(s.base)));
-  kino.log(`resolve ${siteId}: ${fast.length ? "embed69 fast path" : "no fast path"}, capture on ${pages.length} page(s): [${pages.map(safe).join(", ")}]`);
+  const lang = preferredLang();
+  const remembered = (storageGet(serverKey(siteId)) || {}).server || "";
+  const fast = rankServers(await fastServers(site, episodeUrl, servers), lang, remembered);
+  const targets = fast.length
+    ? fast.slice(0, MAX_PAGES)
+    : pagesToOpen(siteId, episodeUrl, servers).filter((u) => Object.values(SITES).some((s) => startHost(u) === startHost(s.base))).map((url) => ({ url }));
+  kino.log(`resolve ${siteId}: ${fast.length ? "embed69 fast path" : "no fast path"} (idioma ${lang}, último servidor ${remembered || "-"}), capture on ${targets.length} page(s): [${targets.map((t) => `${t.lang ? t.lang + "/" : ""}${safe(t.url)}`).join(", ")}]`);
   let lastError = null;
-  for (let p = 0; p < pages.length; p++) {
-    const url = pages[p];
+  for (let p = 0; p < targets.length; p++) {
+    const target = targets[p];
     const started = Date.now();
-    const timeoutMs = captureTimeout(pages.length - p - 1);
-    kino.log(`capture ${safe(url)} (timeout ${timeoutMs} ms)`);
+    const timeoutMs = captureTimeout(targets.length - p - 1);
+    kino.log(`capture ${safe(target.url)} (timeout ${timeoutMs} ms)`);
     try {
-      const got = await kino.browser.capture(url, { timeoutMs, headers: { Referer: site.base + "/" } });
+      const got = await kino.browser.capture(target.url, { timeoutMs, headers: { Referer: site.base + "/" } });
       kino.log(`capture ok in ${Date.now() - started} ms: ${got.media.length} media [${got.media.map((m) => safe(m.url)).join(", ")}], ${got.subtitles.length} subtitles`);
-      const [first, ...rest] = got.media;
-      if (!first) continue;
-      const stream = { url: first.url, headers: first.headers };
-      if (first.mime) stream.mime = first.mime;
-      if (rest.length) stream.alternatives = rest.slice(0, 8).map((m) => (m.mime ? { url: m.url, mime: m.mime, headers: m.headers } : { url: m.url, headers: m.headers }));
-      const subs = (got.subtitles || []).slice(0, 10).map((s) => ({ lang: s.lang || "es", url: s.url, format: /\.srt(\?|$)/i.test(s.url) ? "srt" : "vtt" }));
-      if (subs.length) stream.subtitles = subs;
-      kino.log(`stream ${safe(stream.url)} mime=${stream.mime || "?"} headers=${Object.keys(stream.headers || {}).join(",")} alternatives=${(stream.alternatives || []).length}`);
+      if (!got.media.length) continue;
+      const stream = streamOf(got, target);
+      if (target.server) storageSet(serverKey(siteId), { server: target.server.toLowerCase() });
+      const expiresAtMs = stream.expiresInSeconds ? Date.now() + stream.expiresInSeconds * 1000 : 0;
+      const keepMs = expiresAtMs ? Math.min(STREAM_CACHE_MAX_MS, expiresAtMs - Date.now() - EXPIRY_MARGIN_S * 1000) : STREAM_CACHE_UNKNOWN_MS;
+      if (keepMs > 60000) storageSet(streamKey(ref), { stream, until: Date.now() + keepMs, expiresAtMs }, keepMs);
+      kino.log(`stream ${safe(stream.url)} mime=${stream.mime || "?"} headers=${Object.keys(stream.headers || {}).join(",")} alternatives=${(stream.alternatives || []).length} expires=${stream.expiresInSeconds || "?"} s, resolve ${Date.now() - t0} ms`);
       return stream;
     } catch (e) {
       lastError = e;
-      kino.log(`capture failed after ${Date.now() - started} ms on ${startHost(url)}: ${e.code || ""} ${e.message}`);
+      kino.log(`capture failed after ${Date.now() - started} ms on ${startHost(target.url)}: ${e.code || ""} ${e.message}`);
       // No WebView, or the person never approved it: no other page will do better.
       if (e.code === "browser_unavailable" || e.code === "not_allowed") break;
     }
   }
   if (lastError && lastError.code === "browser_unavailable") {
     throw kino.error("unavailable", "sin navegador web", { userMessage: "Este aparato no tiene navegador web, y esta fuente lo necesita para reproducir." });
+  }
+  if (lastError && lastError.code === "busy") {
+    throw kino.error("unavailable", "navegador ocupado", { userMessage: "Hay otro video buscándose en este momento. Vuelve a intentar en unos segundos." });
   }
   throw kino.error("not_found", lastError ? `${lastError.code || ""} ${lastError.message}` : "sin servidores", { userMessage: "No encontramos el video de este episodio. Prueba otra fuente." });
 }

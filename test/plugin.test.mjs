@@ -1,6 +1,6 @@
 // Offline tests: the HTML parsers against pages saved from the real site (test/fixtures), and resolve's
 // fallbacks with a fake `kino`. Run: node --test test/
-import { test } from "node:test";
+import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -35,7 +35,17 @@ globalThis.kino = {
     },
   },
   rank: { shortQuery: (q) => q, sortBySimilarity: (a) => a, filterRelevant: (a) => a },
+  storage: {
+    get: (k) => (store.has(k) ? store.get(k) : null),
+    set: (k, v, o) => { store.set(k, v); ttls.set(k, o && o.ttlMs); },
+    remove: (k) => { store.delete(k); },
+  },
+  config: { get: (k) => config[k] },
 };
+const store = new Map();
+const ttls = new Map();
+const config = {};
+beforeEach(() => { store.clear(); ttls.clear(); for (const k of Object.keys(config)) delete config[k]; });
 const plugin = await import("../plugin.js");
 
 test("search reads serieskao's cards and survives the other site failing", async () => {
@@ -106,7 +116,7 @@ test("resolve takes the embed69 fast path: captures the decrypted embed pages, n
   }
 });
 
-test("servers: latino first, then streamwish/hglink, voe, unknown, vidhide/morencius last", () => {
+test("servers: latino first (default), then streamwish/hglink, voe, unknown, vidhide/morencius last", () => {
   const list = [
     { lang: "LAT", server: "vidhide", url: "https://morencius.com/embed/a" },
     { lang: "SUB", server: "streamwish", url: "https://hglink.to/e/s" },
@@ -123,4 +133,92 @@ test("a page gets 15 s while others remain and the full 25 s when it is the last
   assert.equal(plugin.captureTimeout(2), 15000);
   assert.equal(plugin.captureTimeout(1), 15000);
   assert.equal(plugin.captureTimeout(0), 25000);
+});
+
+const mixed = [
+  { lang: "LAT", server: "vidhide", url: "https://morencius.com/embed/a" },
+  { lang: "ESP", server: "voe", url: "https://voe.sx/e/esp" },
+  { lang: "SUB", server: "streamwish", url: "https://hglink.to/e/sub" },
+  { lang: "LAT", server: "streamwish", url: "https://hglink.to/e/lat" },
+];
+
+test("Idioma preferido orders the languages; the other two follow in Latino, Castellano, Subtitulado order", () => {
+  assert.deepEqual(plugin.rankServers(mixed, "esp").map((f) => f.url), ["https://voe.sx/e/esp", "https://hglink.to/e/lat", "https://morencius.com/embed/a", "https://hglink.to/e/sub"]);
+  assert.deepEqual(plugin.rankServers(mixed, "sub").map((f) => f.url), ["https://hglink.to/e/sub", "https://hglink.to/e/lat", "https://morencius.com/embed/a", "https://voe.sx/e/esp"]);
+  assert.deepEqual(["LAT", "Latino", "ESP", "CAST", "Español", "SUB", "VOSE", ""].map(plugin.langOf), ["lat", "lat", "esp", "esp", "esp", "sub", "sub", "sub"]);
+});
+
+test("the server that last worked on the site goes first within the language, never over the language", () => {
+  assert.deepEqual(plugin.rankServers(mixed, "lat", "vidhide").map((f) => f.url).slice(0, 2), ["https://morencius.com/embed/a", "https://hglink.to/e/lat"]);
+  assert.equal(plugin.rankServers(mixed, "esp", "vidhide")[0].url, "https://voe.sx/e/esp");
+});
+
+test("expiresInOf reads the CDN's Unix time from the path, only when it is ahead and within a week", () => {
+  const now = 1791092503;
+  assert.equal(plugin.expiresInOf("https://audinifer.com/stream/tok/x/1791135524/63911296/master.m3u8", now), 43021);
+  assert.equal(plugin.expiresInOf("https://cdn.example/1791000000/master.m3u8", now), null); // past
+  assert.equal(plugin.expiresInOf("https://cdn.example/1899999999/master.m3u8", now), null); // years ahead
+  assert.equal(plugin.expiresInOf("https://cdn.example/master.m3u8?e=1791135524", now), null); // query is not read
+  assert.equal(plugin.expiresInOf("https://cdn.example/v/1791100000/x.mp4", 1791000000), 86400); // capped
+});
+
+test("a cached stream comes back with what is left of its expiry, never when nearly gone", () => {
+  const now = 1_000_000;
+  const entry = { stream: { url: "https://x/a.m3u8", expiresInSeconds: 3600 }, until: now + 60_000, expiresAtMs: now + 1800_000 };
+  assert.equal(plugin.fromCache(entry, now).expiresInSeconds, 1800);
+  assert.equal(plugin.fromCache({ ...entry, expiresAtMs: now + 10_000 }, now), null);
+  assert.equal(plugin.fromCache({ ...entry, until: now - 1 }, now), null);
+  assert.equal(plugin.fromCache(null, now), null);
+});
+
+test("resolve: a second play reuses the stream without opening a page; a retry drops it and captures again", async () => {
+  pages["https://serieskao.top/vidurl/tt5753856-1x01/"] = fixture("sk-vidurl-embed69.html");
+  const exp = Math.floor(Date.now() / 1000) + 12 * 3600;
+  captureAnswer = async () => ({ media: [{ url: `https://cdn.example/s/${exp}/1/master.m3u8`, headers: { Referer: "https://x/" } }], subtitles: [{ url: "https://cdn.example/es.vtt" }], finalUrl: "" });
+  try {
+    captured.length = 0;
+    const first = await plugin.resolve("sk|/serie/dark/temporada/1/capitulo/1");
+    assert.equal(captured.length, 1);
+    assert.ok(first.expiresInSeconds > 12 * 3600 - 60 && first.expiresInSeconds <= 12 * 3600);
+    assert.deepEqual(first.subtitles, [{ lang: "es", label: "Español (Latino)", url: "https://cdn.example/es.vtt", format: "vtt" }]);
+    assert.ok(ttls.get("stream:sk|/serie/dark/temporada/1/capitulo/1") <= 4 * 3600 * 1000);
+    assert.deepEqual(JSON.parse(store.get("server:sk")), { server: "streamwish" });
+    const again = await plugin.resolve("sk|/serie/dark/temporada/1/capitulo/1");
+    assert.equal(captured.length, 1);
+    assert.equal(again.url, first.url);
+    await plugin.resolve("sk|/serie/dark/temporada/1/capitulo/1", { retry: { reason: "expired", attempt: 1, status: 403 } });
+    assert.equal(captured.length, 2);
+  } finally {
+    delete pages["https://serieskao.top/vidurl/tt5753856-1x01/"];
+  }
+});
+
+test("resolve with Idioma preferido Subtitulado opens the subtitled server first when the page has one", async () => {
+  pages["https://serieskao.top/vidurl/tt5753856-1x01/"] = fixture("sk-vidurl-embed69.html");
+  config.lang = "sub";
+  captured.length = 0;
+  captureAnswer = async () => ({ media: [{ url: "https://cdn.example/master.m3u8", headers: {} }], subtitles: [], finalUrl: "" });
+  try {
+    await plugin.resolve("sk|/serie/dark/temporada/1/capitulo/1");
+    // This page only has latino servers: the preference changes nothing and resolve still plays.
+    assert.equal(new URL(captured[0]).host, "hglink.to");
+  } finally {
+    delete pages["https://serieskao.top/vidurl/tt5753856-1x01/"];
+  }
+});
+
+test("a challenge page is recognised; the passive beacon on a real page is not", () => {
+  assert.ok(plugin.looksLikeChallenge("<html><head><title>Just a moment...</title>"));
+  assert.ok(plugin.looksLikeChallenge("<script>window._cf_chl_opt={}</script>"));
+  assert.ok(!plugin.looksLikeChallenge('<html><title>Dark</title><script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script>'));
+});
+
+test("a site that times out says so in Spanish and resolve does not hang on it", async () => {
+  const saved = kino.fetch;
+  kino.fetch = async () => { throw Object.assign(new Error("timeout"), { code: "timeout" }); };
+  try {
+    await assert.rejects(plugin.episodes("sk|/serie/dark"), (e) => e.code === "unavailable" && /no responde/.test(e.userMessage));
+  } finally {
+    kino.fetch = saved;
+  }
 });
