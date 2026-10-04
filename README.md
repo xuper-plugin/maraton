@@ -25,8 +25,8 @@ pasa al reproductor el video que esa página encuentra. No hay servidores interm
 En Kino: **Ajustes ▸ Plugins ▸ Agregar**, escribe `xuper-plugin/maraton` y toca **Agregar**. Antes de instalar vas
 a ver con qué sitios se conecta y qué permisos pide.
 
-Desde la versión 0.6 necesita Kino 0.9.51 o más nueva (plugins de apiVersion 7, que pueden leer páginas con el
-navegador oculto). Para Kino 0.9.50 está la versión 0.5.7 (etiqueta `v0.5.7`), sin SoloLatino.
+Necesita Kino 0.9.50 o más nueva (plugins de apiVersion 6 con `"browser": "pages"`: el navegador oculto también
+puede leer páginas).
 
 ## Permisos que pide, y por qué
 
@@ -77,7 +77,7 @@ En **Ajustes ▸ Maratón** (o Plugins ▸ Maratón ▸ Configurar):
 
 Maratón usa casi todo lo que ofrece el SDK de plugins de Kino; `plugin.js` está comentado para leerse de arriba abajo.
 
-- **Manifiesto** (`kino-plugin.json`): `apiVersion` 7 (la línea 0.5 es la 6), `hosts` exactos (nada de comodines), `streamHosts: "any"` porque
+- **Manifiesto** (`kino-plugin.json`): `apiVersion` 6, `"browser": "pages"` (captura de video y lectura de páginas), `hosts` exactos (nada de comodines), `streamHosts: "any"` porque
   el video vive en el CDN que elija cada reproductor, `browser: true`, `download`, `meta`, `categories` de mercado,
   `section`, `theme` (contrastes revisados con `run.mjs . theme`), ícono propio y ajustes de todos los tipos útiles
   (`section`, `toggle`, `select`, `status`, `action`).

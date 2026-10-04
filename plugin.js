@@ -163,7 +163,7 @@ export function acPlaybackPath(ref) {
   return `/v1/playback/${kind}/${id}?season=${season}&episode=${episode}`;
 }
 
-// ---------- sololatino (apiVersion 7: kino.browser.page where a plain read hits Cloudflare) ----------
+// ---------- sololatino ("browser": "pages": kino.browser.page where a plain read hits Cloudflare) ----------
 //
 // sololatino.net, measured 2026-10-04: its catalogs, series, movie and episode pages answer a plain request; its
 // /buscar page answers Cloudflare's "Just a moment…", but the site's own search box reads a JSON suggest API that
@@ -198,7 +198,7 @@ function slUnavailable(why) {
 }
 
 /**
- * One sololatino page: a plain read first; on Cloudflare's challenge, the hidden browser (apiVersion 7) when
+ * One sololatino page: a plain read first; on Cloudflare's challenge, the hidden browser ("browser": "pages") when
  * [allowPage] — never for Home rows, which Kino also asks for on its own. A blocked or timed-out page read marks the
  * site down for [SL_DOWN_MS]; while down, nothing is read at all.
  */
