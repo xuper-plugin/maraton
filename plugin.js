@@ -1,4 +1,4 @@
-// Series web: series and anime from Spanish-language streaming sites, played through Kino's hidden browser
+// Maratón: series and anime from Spanish-language streaming sites, played through Kino's hidden browser
 // (kino.browser.capture, apiVersion 7). Everything runs on the device: HTML is read with kino.fetch (regex, no
 // kino.html, so the Node kit runs it too) and the episode's player page is opened in the hidden browser, which
 // reports the video request the page makes.
@@ -88,7 +88,7 @@ async function page(site, path) {
   }
   const html = r.text();
   // pelisplus/sololatino sit behind Cloudflare at times: a challenge page is "unavailable", never parsed as content.
-  if (looksLikeChallenge(html)) throw kino.error("unavailable", `${site.name} pide verificación de Cloudflare`, { userMessage: `${site.name} está pidiendo una verificación que Kino no puede pasar.` });
+  if (looksLikeChallenge(html)) throw kino.error("unavailable", `${site.name} pide verificación de Cloudflare`, { userMessage: `${site.name} está pidiendo una verificación que no se puede pasar desde aquí.` });
   return html;
 }
 

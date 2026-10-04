@@ -1,6 +1,8 @@
 {
-  "name": "kino-plugin-series-web",
+  "name": "maraton",
   "private": true,
   "type": "module",
-  "scripts": { "test": "node --test test/plugin.test.mjs" }
+  "scripts": {
+    "test": "node --test test/plugin.test.mjs"
+  }
 }

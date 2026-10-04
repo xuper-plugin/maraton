@@ -1,4 +1,4 @@
-# Series web (Kino plugin, local spike)
+# Maratón
 
 Series and anime from Spanish-language streaming sites, for Kino 0.9.51+ (plugin apiVersion 7). Everything runs on
 the device: titles and episodes come from the site's HTML through `kino.fetch`, and an episode plays by opening its
@@ -13,8 +13,8 @@ page in Kino's hidden browser (`kino.browser.capture`), which reports the video 
 - No torrents, no server.
 
 Not published anywhere (no remote). To try it on a debug build, use the app's `PluginSideloadProbe`
-(`app/src/debug/.../PluginSideloadProbe.kt`): copy this folder to `files/debug-plugins/local/series-web/` and install
-`local/series-web` from Ajustes ▸ Plugins.
+(`app/src/debug/.../PluginSideloadProbe.kt`): copy this folder to `files/debug-plugins/local/maraton/` and install
+`local/maraton` from Ajustes ▸ Plugins.
 
 ```
 node <kino>/plugins/sdk/validate.mjs .
