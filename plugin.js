@@ -1,5 +1,5 @@
 // Maratón: series and anime from Spanish-language streaming sites, played through Kino's hidden browser
-// (kino.browser.capture, apiVersion 7). Everything runs on the device: HTML is read with kino.fetch (regex, no
+// (kino.browser.capture). Everything runs on the device: HTML is read with kino.fetch (regex, no
 // kino.html, so the Node kit runs it too) and the episode's player page is opened in the hidden browser, which
 // reports the video request the page makes.
 //
