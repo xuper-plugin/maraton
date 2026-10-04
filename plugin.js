@@ -283,6 +283,7 @@ export async function search(query) {
   const q = String((query && query.q) || "").trim();
   if (!q) return [];
   const tries = [q, kino.rank.shortQuery(q)].filter((v, i, a) => v && a.indexOf(v) === i);
+  const failed = [];
   const lists = await Promise.all(ORDER.map(async (siteId) => {
     if (siteId === AC.id) {
       for (const t of tries) {
@@ -293,6 +294,7 @@ export async function search(query) {
           if (found.length) return found;
         } catch (e) {
           kino.log(`search ac: ${e.code || ""} ${e.message}`);
+          failed.push(e);
           return [];
         }
       }
@@ -307,12 +309,17 @@ export async function search(query) {
         if (found.length) return found;
       } catch (e) {
         kino.log(`search ${siteId}: ${e.code || ""} ${e.message}`);
+        failed.push(e);
         return [];
       }
     }
     return [];
   }));
   const all = [].concat(...lists);
+  // Every site failed: say so, instead of an empty "no results" that reads as "it does not exist".
+  if (!all.length && failed.length === ORDER.length) {
+    throw kino.error("unavailable", "ningún sitio respondió", { userMessage: "Los sitios de Maratón no están respondiendo. Vuelve a intentar en un rato." });
+  }
   const ranked = kino.rank.filterRelevant(kino.rank.sortBySimilarity(all, q, (it) => it.title), q, (it) => it.title).slice(0, 60);
   kino.log(`search "${q.slice(0, 60)}": ${all.length} found, ${ranked.length} kept${ranked.length ? `, best ${ranked[0].ref}` : ""}`);
   return ranked;
@@ -546,6 +553,12 @@ const MAX_PAGES = 3;
 const FETCH_TIMEOUT_MS = 10000;
 const CAPTURE_MS = 25000;
 const CAPTURE_MS_WITH_MORE = 15000;
+/**
+ * resolve's own deadline for starting one more page, under Kino's 75 s for a browser plugin: what is left after it
+ * goes to that last page, and a page is not started with less than [MIN_CAPTURE_MS].
+ */
+const RESOLVE_BUDGET_MS = 68000;
+const MIN_CAPTURE_MS = 6000;
 
 function startHost(url) {
   try { return new URL(url).host; } catch (_) { return ""; }
@@ -830,7 +843,12 @@ export async function resolve(ref, options) {
   for (let p = 0; p < targets.length; p++) {
     const target = targets[p];
     const started = Date.now();
-    const timeoutMs = captureTimeout(targets.length - p - 1);
+    const left = RESOLVE_BUDGET_MS - (Date.now() - t0);
+    if (left < MIN_CAPTURE_MS) {
+      kino.log(`resolve ${ref}: ${left} ms left, ${targets.length - p} page(s) not opened`);
+      break;
+    }
+    const timeoutMs = Math.min(captureTimeout(targets.length - p - 1), left);
     kino.log(`capture ${safe(target.url)} (timeout ${timeoutMs} ms)`);
     try {
       const got = await kino.browser.capture(target.url, { timeoutMs, headers: { Referer: (site ? site.base : "https://allcalidad.re") + "/" } });

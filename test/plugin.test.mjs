@@ -334,3 +334,32 @@ test("allcalidad resolve opens the embed page the API lists", async () => {
     delete pages[`${AC}/v1/playback/tvshow/70523?season=1&episode=1`];
   }
 });
+
+test("search: one site down is just fewer results; every site down is a sentence, not 'no results'", async () => {
+  const saved = kino.fetch;
+  try {
+    kino.fetch = async (url) => (url.startsWith("https://serieskao.top") ? saved(url) : Promise.reject(Object.assign(new Error("timeout"), { code: "timeout" })));
+    assert.ok((await plugin.search({ q: "dark" })).length > 0);
+    kino.fetch = async () => { throw Object.assign(new Error("timeout"), { code: "timeout" }); };
+    await assert.rejects(plugin.search({ q: "dark" }), (e) => e.code === "unavailable" && /no están respondiendo/.test(e.userMessage));
+  } finally {
+    kino.fetch = saved;
+  }
+});
+
+test("resolve never starts a page it has no time left for", async () => {
+  pages["https://serieskao.top/vidurl/tt5753856-1x01/"] = fixture("sk-vidurl-embed69.html");
+  const realNow = Date.now;
+  let fake = realNow();
+  Date.now = () => fake;
+  captured.length = 0;
+  // Each capture "takes" 40 s of the clock and fails: the second page has ~28 s, the third would have none.
+  captureAnswer = async (url, opts) => { fake += 40000; throw Object.assign(new Error(`timeout ${opts.timeoutMs}`), { code: "timeout" }); };
+  try {
+    await assert.rejects(plugin.resolve("sk|/serie/dark/temporada/1/capitulo/1"), (e) => e.code === "not_found");
+    assert.equal(captured.length, 2);
+  } finally {
+    Date.now = realNow;
+    delete pages["https://serieskao.top/vidurl/tt5753856-1x01/"];
+  }
+});
