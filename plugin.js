@@ -301,7 +301,7 @@ export function pagesToOpen(siteId, episodeUrl, servers) {
 }
 
 const MAX_PAGES = 3;
-const CAPTURE_MS = 20000;
+const CAPTURE_MS = 25000;
 
 function startHost(url) {
   try { return new URL(url).host; } catch (_) { return ""; }
