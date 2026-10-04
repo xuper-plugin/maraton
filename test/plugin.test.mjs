@@ -25,7 +25,7 @@ globalThis.kino = {
   },
   browser: { capture: async (url, opts) => { captured.push(url); return captureAnswer(url, opts); } },
   error: kinoError,
-  log: () => {},
+  log: Object.assign(() => {}, { report: (...a) => reports.push(a) }),
   // The two kino.crypto calls the embed69 fast path makes, with Node's crypto (hex in/out like Kino's).
   crypto: {
     hash: (alg, data) => createHash(alg).update(data, "utf8").digest("hex"),
@@ -43,10 +43,11 @@ globalThis.kino = {
   },
   config: { get: (k) => config[k] },
 };
+const reports = [];
 const store = new Map();
 const ttls = new Map();
 const config = {};
-beforeEach(() => { store.clear(); ttls.clear(); for (const k of Object.keys(config)) delete config[k]; });
+beforeEach(() => { reports.length = 0; store.clear(); ttls.clear(); for (const k of Object.keys(config)) delete config[k]; });
 const plugin = await import("../plugin.js");
 
 test("search reads serieskao's cards and survives the other site failing", async () => {
@@ -536,4 +537,36 @@ test("scopedSearch: a catalog row keeps its site and kind; a genre page lets Kin
   assert.equal(await plugin.search({ q: "dark", within: "genre|terror" }), null);
   assert.equal(await plugin.search({ q: "dark", within: "row|ac|movie" }), null); // switched off
   assert.equal(plugin.scopeOf("row|zz|x"), null);
+});
+
+test("telemetry reports carry only our own codes: site down, Cloudflare, capture timeout per server, embed69 empty", async () => {
+  const saved = kino.fetch;
+  try {
+    kino.fetch = async () => { throw Object.assign(new Error("timeout"), { code: "timeout" }); };
+    await plugin.episodes("sk|/serie/dark").catch(() => {});
+    assert.deepEqual(reports.pop(), ["maraton:site", "down", "site=sk", "code=timeout"]);
+    kino.fetch = async () => ({ ok: true, status: 200, text: () => "<title>Just a moment...</title>" });
+    await plugin.episodes("sk|/serie/dark").catch(() => {});
+    assert.deepEqual(reports.pop(), ["maraton:site", "cloudflare", "site=sk"]);
+    kino.fetch = async (url) => (url.includes("/vidurl/") ? { ok: true, status: 200, text: () => "<html>changed</html>" } : saved(url));
+    captureAnswer = async () => { throw Object.assign(new Error("timeout"), { code: "timeout" }); };
+    await plugin.resolve("sk|/serie/dark/temporada/1/capitulo/1").catch(() => {});
+    assert.ok(reports.some((r) => r[0] === "maraton:embed69" && r[1] === "no_servers"));
+    assert.ok(reports.some((r) => r[0] === "maraton:capture" && r[1] === "timeout" && r[2] === "server=episode_page"));
+    // Nothing reported carries a URL, a host or a title.
+    for (const r of reports) for (const c of r) assert.doesNotMatch(String(c), /https?:|\.top|\.net|dark/i);
+  } finally {
+    kino.fetch = saved;
+  }
+});
+
+test("a capture timeout on a known server reports that server's name", async () => {
+  pages["https://serieskao.top/vidurl/tt5753856-1x01/"] = fixture("sk-vidurl-embed69.html");
+  captureAnswer = async () => { throw Object.assign(new Error("timeout"), { code: "timeout" }); };
+  try {
+    await plugin.resolve("sk|/serie/dark/temporada/1/capitulo/1").catch(() => {});
+    assert.deepEqual(reports.filter((r) => r[0] === "maraton:capture").map((r) => r[2]), ["server=streamwish", "server=voe", "server=vidhide"]);
+  } finally {
+    delete pages["https://serieskao.top/vidurl/tt5753856-1x01/"];
+  }
 });

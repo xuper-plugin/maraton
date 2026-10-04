@@ -1,7 +1,7 @@
 {
   "id": "maraton",
   "name": "Maratón",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "apiVersion": 6,
   "entry": "plugin.js",
   "description": "Series, anime y películas en latino, castellano o subtitulado. El video se busca en tu propio aparato, sin servidores intermedios.",
@@ -152,5 +152,6 @@
     "background": "#0B1613",
     "surface": "#14302A",
     "highlight": "#F2C14E"
-  }
+  },
+  "telemetry": true
 }

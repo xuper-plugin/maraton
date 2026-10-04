@@ -58,10 +58,12 @@ async function acGet(path) {
     r = await kino.fetch(AC.api + path, { headers: { "User-Agent": UA, Accept: "application/json" }, timeoutMs: FETCH_TIMEOUT_MS });
   } catch (e) {
     kino.log(`fetch ${safe(AC.api + path)}: ${e.code || ""} ${e.message} after ${Date.now() - t0} ms`);
+    report("maraton:site", "down", "site=ac", `code=${e.code || "network"}`);
     throw kino.error("unavailable", `${AC.name}: ${e.code || "network"}`, { userMessage: `${AC.name} no responde. Vuelve a intentar en un rato.` });
   }
   kino.log(`fetch ${safe(AC.api + path)} -> ${r.status} in ${Date.now() - t0} ms`);
   if (!r.ok) {
+    if (r.status !== 404) report("maraton:site", "http", "site=ac", `status=${r.status}`);
     throw kino.error(r.status === 404 ? "not_found" : r.status === 429 ? "rate_limited" : "unavailable", `${AC.name} respondió ${r.status}`,
       { userMessage: r.status === 404 ? `${AC.name} ya no tiene este título.` : `${AC.name} no está respondiendo bien (${r.status}).` });
   }
@@ -158,6 +160,24 @@ export function acPlaybackPath(ref) {
   return `/v1/playback/${kind}/${id}?season=${season}&episode=${episode}`;
 }
 
+// ---------- telemetry ----------
+//
+// With "telemetry": true, a failed call's own kino.log lines already reach Kino's error board. kino.log.report is for
+// what WORKED but degraded: a site that is down while the others answered, a Cloudflare wall, an embed host whose
+// player never asked for video, an embed69 page that yielded no server. Only codes and counts go in a report — our
+// own site and server names, a status number — never a URL, a title or anything the person typed (Kino scrubs lines
+// too, and allows one report per area an hour).
+
+/** `area` is namespaced ("maraton:site"); the rest are short codes. No-op where kino.log.report does not exist. */
+export function report(area, ...codes) {
+  try {
+    if (kino.log && typeof kino.log.report === "function") kino.log.report(area, ...codes);
+    else kino.log(area, ...codes);
+  } catch (_) { /* a report never breaks a call */ }
+}
+
+const siteCode = (site) => Object.keys(SITES).find((k) => SITES[k] === site) || "?";
+
 // ---------- small helpers ----------
 
 function abs(site, href) {
@@ -210,15 +230,18 @@ async function page(site, path) {
     r = await kino.fetch(abs(site, path), { headers: { "User-Agent": UA, Accept: "text/html" }, timeoutMs: FETCH_TIMEOUT_MS });
   } catch (e) {
     kino.log(`fetch ${safe(abs(site, path))}: ${e.code || ""} ${e.message} after ${Date.now() - t0} ms`);
+    report("maraton:site", "down", `site=${siteCode(site)}`, `code=${e.code || "network"}`);
     throw kino.error("unavailable", `${site.name}: ${e.code || "network"}`, { userMessage: `${site.name} no responde. Vuelve a intentar en un rato.` });
   }
   kino.log(`fetch ${safe(abs(site, path))} -> ${r.status} in ${Date.now() - t0} ms`);
   if (!r.ok) {
+    if (r.status !== 404) report("maraton:site", "http", `site=${siteCode(site)}`, `status=${r.status}`);
     throw kino.error(r.status === 404 ? "not_found" : r.status === 429 ? "rate_limited" : "unavailable", `${site.name} respondió ${r.status}`,
       { userMessage: r.status === 404 ? `${site.name} ya no tiene esta página.` : `${site.name} no está respondiendo bien (${r.status}).` });
   }
   const html = r.text();
   // Sites behind Cloudflare at times answer an interstitial: "unavailable", never parsed as content.
+  if (looksLikeChallenge(html)) report("maraton:site", "cloudflare", `site=${siteCode(site)}`);
   if (looksLikeChallenge(html)) throw kino.error("unavailable", `${site.name} pide verificación de Cloudflare`, { userMessage: `${site.name} está pidiendo una verificación que no se puede pasar desde aquí.` });
   return html;
 }
@@ -796,6 +819,11 @@ const SERVER_MATCH = {
 };
 const SERVER_LABEL = { streamwish: "Streamwish", voe: "Voe", vidhide: "Vidhide", vimeos: "Vimeos", goodstream: "Goodstream" };
 
+/** Our name for a server ("streamwish"), else "other": a code safe to report. */
+function serverName(f) {
+  return Object.keys(SERVER_MATCH).find((k) => serverMatches(f, k)) || (f && f.lang ? "other" : "episode_page");
+}
+
 function serverMatches(f, name) {
   const rx = SERVER_MATCH[name];
   return !!rx && (rx.test(f.server || "") || rx.test(startHost(f.url)));
@@ -852,6 +880,8 @@ async function fastServers(site, episodeUrl, servers) {
       continue;
     }
     const found = embed69Servers(r.text());
+    // The page loaded but nothing decrypted: embed69 changed its page (key, proof of work or dataLink).
+    if (!found.length) report("maraton:embed69", "no_servers", `ms=${Date.now() - t0}`);
     kino.log(`embed69 ${safe(s)}: ${found.length} server(s) in ${Date.now() - t0} ms [${found.map((f) => `${f.lang}/${f.server}@${startHost(f.url)}`).join(", ")}]`);
     for (const f of found) if (!out.some((o) => o.url === f.url)) out.push(f);
   }
@@ -1037,6 +1067,8 @@ export async function resolve(ref, options) {
       lastError = e;
       failedHere.add(target.url);
       kino.log(`capture failed after ${Date.now() - started} ms on ${startHost(target.url)}: ${e.code || ""} ${e.message}`);
+      // Which server's player let us down, by our own name for it (never its URL).
+      report("maraton:capture", e.code || "error", `server=${serverName(target)}`, `ms=${Date.now() - started}`);
       // No WebView, or the person never approved it: no other page will do better.
       if (e.code === "browser_unavailable" || e.code === "not_allowed") break;
     }

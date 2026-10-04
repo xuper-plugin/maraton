@@ -37,6 +37,9 @@ Necesita Kino 0.9.50 o más nueva (plugins de apiVersion 6 con navegador oculto)
 - **"Puede reproducir video desde cualquier servidor que indique"** (en rojo). El video vive en el servidor que el
   reproductor de cada página elija, y esos cambian; nunca uno de tu red local.
 - **"Puede descargar videos para verlos sin conexión"**.
+- **"Comparte registros de errores con Kino para corregir fallas"**: cuando algo falla (un sitio caído, una
+  verificación, un servidor que no entrega el video), sale un aviso con códigos —qué sitio, qué servidor, cuánto
+  tardó—, nunca direcciones, títulos ni lo que escribiste.
 - **Se conecta con**: `serieskao.top`, `tmdb.allcalidad.re` (los catálogos) y `morencius.com`,
   `hglink.to`, `voe.sx`, `vimeos.net`, `goodstream.one` (los reproductores donde arranca la búsqueda del video).
 
