@@ -16,16 +16,31 @@ const SITES = {
     catalog: { serie: "/series?page=", anime: "/animes?page=", pelicula: "/peliculas?page=" },
     episodeRx: /<a[^>]+href="([^"]*?\/temporada\/(\d+)\/capitulo\/(\d+))"[^>]*>([\s\S]*?)<\/a>/gi,
   },
-  sl: {
-    name: "SoloLatino",
-    base: "https://sololatino.net",
-    search: (q) => `/buscar?q=${encodeURIComponent(q)}`,
-    catalog: { serie: "/series?page=", anime: "/animes?page=" },
-    episodeRx: /<a[^>]+href="([^"]*?\/temporada-(\d+)\/episodio-(\d+))"[^>]*>([\s\S]*?)<\/a>/gi,
-  },
 };
 
-const ORDER = ["sk", "ac", "sl"];
+/**
+ * Every site the plugin can read, in the order results are merged. Which ones are used is the person's choice
+ * (Ajustes: "Usar SeriesKao" / "Usar AllCalidad", see [activeSites]). sololatino.net was dropped: it answers a
+ * Cloudflare challenge from every network tried, and reading it would need the hidden browser to return a page's HTML
+ * (an SDK change the owner asked to wait for).
+ */
+const ALL_SITES = ["sk", "ac"];
+const SITE_SETTING = { sk: "useSerieskao", ac: "useAllcalidad" };
+
+/** The sites switched on in the plugin's settings (both by default; validateSettings refuses switching both off). */
+export function activeSites() {
+  return ALL_SITES.filter((id) => configValue(SITE_SETTING[id], true) !== false);
+}
+
+/** A setting's value, or [fallback] when it is unset or kino.config is not there (an old kit). */
+function configValue(key, fallback) {
+  try {
+    const v = kino.config.get(key);
+    return v === undefined || v === null || v === "" ? fallback : v;
+  } catch (_) {
+    return fallback;
+  }
+}
 
 // ---------- allcalidad (a JSON API, no HTML) ----------
 //
@@ -203,7 +218,7 @@ async function page(site, path) {
       { userMessage: r.status === 404 ? `${site.name} ya no tiene esta página.` : `${site.name} no está respondiendo bien (${r.status}).` });
   }
   const html = r.text();
-  // pelisplus/sololatino sit behind Cloudflare at times: a challenge page is "unavailable", never parsed as content.
+  // Sites behind Cloudflare at times answer an interstitial: "unavailable", never parsed as content.
   if (looksLikeChallenge(html)) throw kino.error("unavailable", `${site.name} pide verificación de Cloudflare`, { userMessage: `${site.name} está pidiendo una verificación que no se puede pasar desde aquí.` });
   return html;
 }
@@ -240,41 +255,8 @@ function skCards(siteId, html) {
   return out;
 }
 
-/** sololatino's catalog: a JSON-LD ItemList (no year); its search: plain `/serie/` links with the title inside. */
-function slCards(siteId, html) {
-  const site = SITES[siteId];
-  const out = [];
-  const seen = new Set();
-  const push = (url, title, poster) => {
-    const path = pathOf(site, url);
-    if (!/^\/(serie|anime)s?\//.test(path) || seen.has(path) || !title) return;
-    seen.add(path);
-    const item = { id: idOf(siteId, path), ref: `${siteId}|${path}`, title, kind: "series" };
-    if (poster && /^https?:\/\//.test(poster)) item.poster = poster;
-    out.push(item);
-  };
-  const ld = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/gi;
-  let m;
-  while ((m = ld.exec(html))) {
-    let data;
-    try { data = JSON.parse(m[1]); } catch (_) { continue; }
-    for (const node of (data && data["@graph"]) || []) {
-      if (node["@type"] !== "ItemList") continue;
-      for (const it of node.itemListElement || []) push(it.url || (it.item && it.item.url) || "", it.name || (it.item && it.item.name) || "", it.image || "");
-    }
-  }
-  if (out.length) return out;
-  const a = /<a[^>]+href="([^"]*\/(?:serie|anime)s?\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
-  while ((m = a.exec(html))) {
-    const img = /<img[^>]+>/i.exec(m[2]);
-    const title = text(m[2]) || (img ? attr(img[0], "alt") : "");
-    push(abs(site, decode(m[1])), title, img ? attr(img[0], "data-src") || attr(img[0], "src") : "");
-  }
-  return out;
-}
-
 function cards(siteId, html) {
-  return siteId === "sk" ? skCards(siteId, html) : slCards(siteId, html);
+  return skCards(siteId, html);
 }
 
 // ---------- search / home / browse ----------
@@ -282,9 +264,13 @@ function cards(siteId, html) {
 export async function search(query) {
   const q = String((query && query.q) || "").trim();
   if (!q) return [];
-  const tries = [q, kino.rank.shortQuery(q)].filter((v, i, a) => v && a.indexOf(v) === i);
+  // The guide's advice: the title Kino typed, its head (kino.rank.shortQuery), then TMDB's original title and the
+  // other titles Kino knows, tried in that order until a site answers something. At most four tries per site.
+  const tries = [q, kino.rank.shortQuery(q), query.originalTitle, ...(query.altTitles || [])]
+    .map((t) => String(t || "").trim()).filter((v, i, a) => v && a.indexOf(v) === i).slice(0, 4);
   const failed = [];
-  const lists = await Promise.all(ORDER.map(async (siteId) => {
+  const sites = activeSites();
+  const lists = await Promise.all(sites.map(async (siteId) => {
     if (siteId === AC.id) {
       for (const t of tries) {
         try {
@@ -317,7 +303,7 @@ export async function search(query) {
   }));
   const all = [].concat(...lists);
   // Every site failed: say so, instead of an empty "no results" that reads as "it does not exist".
-  if (!all.length && failed.length === ORDER.length) {
+  if (!all.length && failed.length === sites.length) {
     throw kino.error("unavailable", "ningún sitio respondió", { userMessage: "Los sitios de Maratón no están respondiendo. Vuelve a intentar en un rato." });
   }
   const ranked = kino.rank.filterRelevant(kino.rank.sortBySimilarity(all, q, (it) => it.title), q, (it) => it.title).slice(0, 60);
@@ -362,53 +348,167 @@ function recentlyAdded(siteId, html) {
   return i < 0 ? [] : cards(siteId, html.slice(i));
 }
 
+// ---------- rows (Home, the plugin's own page) ----------
+
+/** A catalog's first page as a row with "Ver más"; null when it failed or came back empty (logged, never thrown). */
+async function catalogRow(siteId, kind, title, genre) {
+  try {
+    const items = siteId === AC.id
+      ? acItems((await acGet(`/v1/items?kind=${kind}&page=1`)).items)
+      : cards(siteId, await page(SITES[siteId], SITES[siteId].catalog[kind] + "1"));
+    return items.length ? { id: `${siteId}-${kind}`, title, items, ref: `row|${siteId}|${kind}`, genre } : null;
+  } catch (e) {
+    kino.log(`row ${siteId}/${kind}: ${e.code || ""} ${e.message}`);
+    return null;
+  }
+}
+
+/** serieskao's front page: "Nuevos episodios" and "Recién agregado" (no "Ver más": the site has no paged list of them). */
+async function frontRows() {
+  try {
+    const html = await page(SITES.sk, "/");
+    const rows = [];
+    const latest = latestEpisodes("sk", html);
+    if (latest.length) rows.push({ id: "sk-latest", title: "Nuevos episodios", items: latest, genre: "series" });
+    const recent = recentlyAdded("sk", html);
+    if (recent.length) rows.push({ id: "sk-recent", title: "Recién agregado", items: recent });
+    return rows;
+  } catch (e) {
+    kino.log(`row sk/front: ${e.code || ""} ${e.message}`);
+    return [];
+  }
+}
+
+/**
+ * What each kind of content is called on each site, for Home and the plugin page's tabs. `genre` is the SDK's closed
+ * vocabulary (contract.json "genres"): it is what lines rows up with other plugins' in Categorías.
+ */
+const ROWS = {
+  series: [{ siteId: "sk", kind: "serie", title: "Series" }, { siteId: "ac", kind: "tvshow", title: "Series recientes" }],
+  anime: [{ siteId: "sk", kind: "anime", title: "Anime" }, { siteId: "ac", kind: "anime", title: "Anime reciente" }],
+  peliculas: [{ siteId: "sk", kind: "pelicula", title: "Películas" }, { siteId: "ac", kind: "movie", title: "Películas recientes" }],
+};
+
+async function rowsOf(groups, sites) {
+  const wanted = [];
+  for (const g of groups) for (const r of ROWS[g]) if (sites.includes(r.siteId)) wanted.push({ ...r, genre: g });
+  return (await Promise.all(wanted.map((r) => catalogRow(r.siteId, r.kind, r.title, r.genre)))).filter(Boolean);
+}
+
 export async function home() {
-  const catalogs = [
-    { siteId: "sk", kind: "serie", title: "Series", genre: "series" },
-    { siteId: "sk", kind: "anime", title: "Anime", genre: "anime" },
-    { siteId: "sk", kind: "pelicula", title: "Películas", genre: "peliculas" },
-  ];
-  const front = (async () => {
-    try {
-      const html = await page(SITES.sk, "/");
-      const rows = [];
-      const latest = latestEpisodes("sk", html);
-      if (latest.length) rows.push({ id: "sk-latest", title: "Nuevos episodios", items: latest, genre: "series" });
-      const recent = recentlyAdded("sk", html);
-      if (recent.length) rows.push({ id: "sk-recent", title: "Recién agregado", items: recent });
-      return rows;
-    } catch (e) {
-      kino.log(`home sk/front: ${e.code || ""} ${e.message}`);
-      return [];
-    }
-  })();
-  const rows = await Promise.all(catalogs.map(async (r) => {
-    try {
-      const items = cards(r.siteId, await page(SITES[r.siteId], SITES[r.siteId].catalog[r.kind] + "1"));
-      return items.length ? { id: `${r.siteId}-${r.kind}`, title: r.title, items, ref: `row|${r.siteId}|${r.kind}`, genre: r.genre } : null;
-    } catch (e) {
-      kino.log(`home ${r.siteId}/${r.kind}: ${e.code || ""} ${e.message}`);
-      return null;
-    }
-  }));
-  const acRows = await Promise.all([
-    { kind: "movie", title: "Películas recientes", genre: "peliculas" },
-    { kind: "tvshow", title: "Series recientes", genre: "series" },
-  ].map(async (r) => {
-    try {
-      const items = acItems((await acGet(`/v1/items?kind=${r.kind}&page=1`)).items);
-      return items.length ? { id: `ac-${r.kind}`, title: r.title, items, ref: `row|ac|${r.kind}`, genre: r.genre } : null;
-    } catch (e) {
-      kino.log(`home ac/${r.kind}: ${e.code || ""} ${e.message}`);
-      return null;
-    }
-  }));
-  const out = [...(await front), ...rows.filter(Boolean), ...acRows.filter(Boolean)];
+  const sites = activeSites();
+  const [front, rest] = await Promise.all([
+    sites.includes("sk") ? frontRows() : Promise.resolve([]),
+    rowsOf(["series", "anime", "peliculas"], sites),
+  ]);
+  const out = [...front, ...rest];
   kino.log(`home: ${out.length} rows [${out.map((r) => `${r.id}:${r.items.length}`).join(", ")}]`);
   return out;
 }
 
+// ---------- genres (Categorías tiles, browse, the Géneros tab) ----------
+
+/**
+ * One tile per genre both sites can list, with each site's own slug (serieskao: /generos/<slug>; allcalidad: the
+ * genre taxonomy's slug, accents included). Read from both sites' genre lists on 2026-10-04; a missing slug means that
+ * site has no such genre. Static on purpose: Categorías asks for tiles often and must not wait on two sites.
+ */
+export const GENRES = [
+  { key: "accion", title: "Acción", sk: "accion", ac: "acción" },
+  { key: "comedia", title: "Comedia", sk: "comedia", ac: "comedia" },
+  { key: "drama", title: "Drama", sk: "drama", ac: "drama" },
+  { key: "terror", title: "Terror", sk: "terror", ac: "terror" },
+  { key: "animacion", title: "Animación", sk: "animacion", ac: "animación" },
+  { key: "ciencia-ficcion", title: "Ciencia ficción", sk: "ciencia-ficcion", ac: "ciencia-ficción" },
+  { key: "aventura", title: "Aventura", sk: "aventura", ac: "aventura" },
+  { key: "suspense", title: "Suspenso", sk: "suspense", ac: "suspense" },
+  { key: "crimen", title: "Crimen", sk: "crimen", ac: "crimen" },
+  { key: "romance", title: "Romance", sk: "romance", ac: "romance" },
+  { key: "misterio", title: "Misterio", sk: "misterio", ac: "misterio" },
+  { key: "fantasia", title: "Fantasía", sk: "fantasia", ac: "fantasía" },
+  { key: "familia", title: "Familia", sk: "familia", ac: "familia" },
+  { key: "documental", title: "Documental", sk: "documental", ac: "documental" },
+  { key: "historia", title: "Historia", sk: "historia", ac: "historia" },
+  { key: "belica", title: "Bélica", sk: "belica", ac: "bélica" },
+  { key: "guerra", title: "Guerra y política", sk: "guerra", ac: "war-politics" },
+  { key: "western", title: "Western", sk: "western", ac: "western" },
+  { key: "dorama", title: "Doramas", sk: "dorama" },
+  { key: "musica", title: "Música", ac: "música" },
+  { key: "infantil", title: "Infantil", ac: "kids" },
+  { key: "reality", title: "Reality", ac: "reality" },
+];
+
+const genreByKey = (key) => GENRES.find((g) => g.key === key);
+
+/** The tiles of the active sites (Categorías ▸ Maratón), each opening `browse("genre|<key>")`. At most 24 (SDK cap). */
+export async function categories() {
+  const sites = activeSites();
+  return GENRES.filter((g) => sites.some((id) => g[id])).slice(0, 24).map((g) => ({ id: `genre-${g.key}`, title: g.title, ref: `genre|${g.key}` }));
+}
+
+/**
+ * One page of a genre, both sites at once, interleaved so neither buries the other; the cursor is the page number
+ * (both sites page by 24). A site that fails or has no such genre just adds nothing.
+ */
+async function genrePage(key, n) {
+  const g = genreByKey(key);
+  if (!g) throw kino.error("not_found", "género desconocido");
+  const sites = activeSites();
+  const [sk, ac] = await Promise.all([
+    sites.includes("sk") && g.sk
+      ? page(SITES.sk, `/generos/${g.sk}?page=${n}`).then((html) => cards("sk", html)).catch((e) => { kino.log(`genre sk/${key}: ${e.code || ""} ${e.message}`); return []; })
+      : Promise.resolve([]),
+    sites.includes("ac") && g.ac
+      ? acGet(`/v1/taxonomies/genre/${encodeURIComponent(g.ac)}/items?page=${n}`).then((a) => acItems(a.items)).catch((e) => { kino.log(`genre ac/${key}: ${e.code || ""} ${e.message}`); return []; })
+      : Promise.resolve([]),
+  ]);
+  const items = [];
+  for (let i = 0; i < Math.max(sk.length, ac.length); i++) {
+    if (sk[i]) items.push(sk[i]);
+    if (ac[i]) items.push(ac[i]);
+  }
+  kino.log(`genre ${key} page ${n}: ${sk.length} + ${ac.length}`);
+  return items.slice(0, 100);
+}
+
+// ---------- the plugin's own page (Inicio chip on the phone, sidebar entry on the TV) ----------
+
+const TABS = [
+  { id: "series", label: "Series" },
+  { id: "anime", label: "Anime" },
+  { id: "peliculas", label: "Películas" },
+  { id: "generos", label: "Géneros" },
+];
+/** The genres the Géneros tab shows as rows (each with "Ver más"); the rest are in Categorías. */
+const TAB_GENRES = ["accion", "comedia", "drama", "terror", "animacion", "ciencia-ficcion"];
+
+export async function section({ tab } = {}) {
+  const chosen = TABS.some((t) => t.id === tab) ? tab : "series";
+  const sites = activeSites();
+  let rows;
+  if (chosen === "generos") {
+    rows = (await Promise.all(TAB_GENRES.map(async (key) => {
+      const items = await genrePage(key, 1);
+      return items.length ? { id: `genre-${key}`, title: genreByKey(key).title, items: items.slice(0, 30), ref: `genre|${key}` } : null;
+    }))).filter(Boolean);
+  } else {
+    rows = await rowsOf([chosen], sites);
+    if (chosen === "series" && sites.includes("sk")) rows = [...(await frontRows()), ...rows];
+  }
+  const hero = {
+    title: "Maratón",
+    text: `Series, anime y películas en ${({ lat: "latino", esp: "castellano", sub: "versión subtitulada" })[preferredLang()]}. Cambia el idioma, los sitios y el servidor en Ajustes ▸ Maratón.`,
+  };
+  kino.log(`section ${chosen}: ${rows.length} rows`);
+  return { tabs: TABS, tab: chosen, hero, rows };
+}
+
 export async function browse(ref, cursor) {
+  if (String(ref).startsWith("genre|")) {
+    const n = Math.max(1, parseInt(cursor || "1", 10) || 1);
+    const items = await genrePage(String(ref).slice(6), n);
+    return items.length ? { items, next: String(n + 1) } : { items };
+  }
   const [, siteId, kind] = String(ref).split("|");
   if (siteId === AC.id) {
     if (!AC_KINDS.includes(kind)) throw kino.error("not_found", "fila desconocida");
@@ -663,6 +763,20 @@ function serverRank(f) {
   return hit ? hit.rank : UNKNOWN_SERVER_RANK;
 }
 
+/**
+ * The servers the "Probar primero" setting can name, matched by server name or host (streamwish answers on
+ * hglink.to, vidhide on morencius.com). [SERVER_LABEL] is how the status line names them.
+ */
+const SERVER_MATCH = {
+  streamwish: /streamwish|hglink/i, voe: /voe/i, vidhide: /vidhide|morencius/i, vimeos: /vimeos/i, goodstream: /goodstream/i,
+};
+const SERVER_LABEL = { streamwish: "Streamwish", voe: "Voe", vidhide: "Vidhide", vimeos: "Vimeos", goodstream: "Goodstream" };
+
+function serverMatches(f, name) {
+  const rx = SERVER_MATCH[name];
+  return !!rx && (rx.test(f.server || "") || rx.test(startHost(f.url)));
+}
+
 /** The three audio families an embed69 section's `video_language` falls into, in the default order. */
 export const LANGS = ["lat", "esp", "sub"];
 const LANG_LABEL = { lat: "Latino", esp: "Castellano", sub: "Subtitulado" };
@@ -680,13 +794,15 @@ export function langOf(raw) {
  * language the server that last produced a video on this site ([remembered]), then [SERVER_PREFERENCE]; the page's
  * own order breaks ties.
  */
-export function rankServers(list, preferred = "lat", remembered = "") {
+export function rankServers(list, preferred = "lat", remembered = "", chosen = "auto") {
   const langOrder = [preferred, ...LANGS.filter((l) => l !== preferred)];
   const langRank = (f) => { const i = langOrder.indexOf(langOf(f.lang)); return i < 0 ? LANGS.length : i; };
+  // "Probar primero" (a setting) beats what worked last, which beats the measured preference.
+  const pick = (f) => (chosen && chosen !== "auto" && serverMatches(f, chosen) ? 0 : 1);
   const memo = (f) => (remembered && (f.server || "").toLowerCase() === remembered ? 0 : 1);
   return list
     .map((f, i) => ({ f, i }))
-    .sort((a, b) => (langRank(a.f) - langRank(b.f)) || (memo(a.f) - memo(b.f)) || (serverRank(a.f) - serverRank(b.f)) || (a.i - b.i))
+    .sort((a, b) => (langRank(a.f) - langRank(b.f)) || (pick(a.f) - pick(b.f)) || (memo(a.f) - memo(b.f)) || (serverRank(a.f) - serverRank(b.f)) || (a.i - b.i))
     .map((x) => x.f);
 }
 
@@ -773,12 +889,8 @@ export function fromCache(entry, nowMs = Date.now()) {
 }
 
 function preferredLang() {
-  try {
-    const v = kino.config.get("lang");
-    return LANGS.includes(v) ? v : "lat";
-  } catch (_) {
-    return "lat";
-  }
+  const v = configValue("lang", "lat");
+  return LANGS.includes(v) ? v : "lat";
 }
 
 // ---------- resolve ----------
@@ -802,10 +914,11 @@ export async function resolve(ref, options) {
   const { siteId, site, path } = isAc ? { siteId: AC.id, site: null, path: "" } : splitRef(ref);
   const t0 = Date.now();
   // A retry (the CDN said 401/403/409) or a normal call: a retry never gets the cached copy back.
+  const keepLinks = configValue("keepLinks", true) !== false;
   if (options && options.retry) {
     storageRemove(streamKey(ref));
     kino.log(`resolve ${ref}: retry ${options.retry.reason || ""} ${options.retry.status || ""}, cache dropped`);
-  } else {
+  } else if (keepLinks) {
     const cached = fromCache(storageGet(streamKey(ref)));
     if (cached) {
       kino.log(`resolve ${ref}: cached stream ${safe(cached.url)} (${cached.expiresInSeconds || "?"} s left)`);
@@ -814,12 +927,13 @@ export async function resolve(ref, options) {
   }
   const lang = preferredLang();
   const remembered = (storageGet(serverKey(siteId)) || {}).server || "";
+  const chosen = String(configValue("server", "auto"));
   const { only } = parseServerRef(ref);
   let fast;
   let fallbackPages = [];
   if (isAc) {
     // allcalidad lists its embeds itself: no page to read, no fast path needed.
-    fast = rankServers(acServers(await acGet(acPlaybackPath(ref))), lang, remembered);
+    fast = rankServers(acServers(await acGet(acPlaybackPath(ref))), lang, remembered, chosen);
     kino.log(`resolve ${ref}: ${fast.length} embed(s) [${fast.map((f) => `${f.lang}/${f.server}@${startHost(f.url)}`).join(", ")}]`);
   } else {
     const episodeUrl = abs(site, path);
@@ -828,7 +942,7 @@ export async function resolve(ref, options) {
     kino.log(`resolve ${ref}: servers [${servers.map(safe).join(", ")}]`);
     // Fast path: decrypt embed69's server list and open each embed host's page directly (its player is then the top
     // document, so autoplay reaches it). Without it, fall back to opening the episode page and digging through frames.
-    fast = rankServers(await fastServers(site, episodeUrl, servers), lang, remembered);
+    fast = rankServers(await fastServers(site, episodeUrl, servers), lang, remembered, chosen);
     fallbackPages = pagesToOpen(siteId, episodeUrl, servers).filter((u) => Object.values(SITES).some((x) => startHost(u) === startHost(x.base)));
   }
   if (only) {
@@ -858,7 +972,7 @@ export async function resolve(ref, options) {
       if (target.server) storageSet(serverKey(siteId), { server: target.server.toLowerCase() });
       const expiresAtMs = stream.expiresInSeconds ? Date.now() + stream.expiresInSeconds * 1000 : 0;
       const keepMs = expiresAtMs ? Math.min(STREAM_CACHE_MAX_MS, expiresAtMs - Date.now() - EXPIRY_MARGIN_S * 1000) : STREAM_CACHE_UNKNOWN_MS;
-      if (keepMs > 60000) storageSet(streamKey(ref), { stream, until: Date.now() + keepMs, expiresAtMs }, keepMs);
+      if (keepLinks && keepMs > 60000) storageSet(streamKey(ref), { stream, until: Date.now() + keepMs, expiresAtMs }, keepMs);
       kino.log(`stream ${safe(stream.url)} mime=${stream.mime || "?"} headers=${Object.keys(stream.headers || {}).join(",")} alternatives=${(stream.alternatives || []).length} expires=${stream.expiresInSeconds || "?"} s, resolve ${Date.now() - t0} ms`);
       return stream;
     } catch (e) {
@@ -893,4 +1007,65 @@ export async function meta(query) {
   for (const k of ["title", "overview", "poster", "year"]) if (series[k]) out[k] = series[k];
   kino.log(`meta ${imdb}: ${known.ref}, ${out.episodes.length} episodes`);
   return out;
+}
+
+// ---------- the settings form: status line, actions, validation ----------
+
+const SITE_NAME = { sk: "SeriesKao", ac: "AllCalidad" };
+
+/** The "Estado" line: active sites, the language, and the server that last produced a video on each site. */
+export async function settingsStatus() {
+  const sites = activeSites();
+  const last = sites.map((id) => (storageGet(serverKey(id)) || {}).server).filter(Boolean)
+    .map((name) => SERVER_LABEL[Object.keys(SERVER_MATCH).find((k) => SERVER_MATCH[k].test(name)) || ""] || name);
+  const parts = [
+    `${sites.length === 1 ? "1 sitio activo" : `${sites.length} sitios activos`} (${sites.map((id) => SITE_NAME[id]).join(", ")})`,
+    ({ lat: "Latino", esp: "Castellano", sub: "Subtitulado" })[preferredLang()],
+    last.length ? `último servidor que funcionó: ${[...new Set(last)].join(", ")}` : "todavía sin reproducir nada",
+  ];
+  return { state: parts.join(" · ").slice(0, 200) };
+}
+
+/** How one site answers right now, as a short Spanish phrase (for "Revisar sitios"). */
+async function checkSite(id) {
+  const t0 = Date.now();
+  try {
+    if (id === AC.id) await acGet("/v1/items?kind=movie&page=1");
+    else await page(SITES.sk, "/");
+    return `${SITE_NAME[id]}: responde (${Date.now() - t0} ms)`;
+  } catch (e) {
+    return `${SITE_NAME[id]}: ${/verificaci/.test(e.userMessage || "") ? "pide verificación" : "no responde"}`;
+  }
+}
+
+/** Every key this plugin keeps for streams and servers (what "Borrar enlaces guardados" removes). */
+function linkKeys() {
+  try {
+    return (kino.storage.keys() || []).filter((k) => k.startsWith("stream:") || k.startsWith("server:"));
+  } catch (_) {
+    return [];
+  }
+}
+
+export async function action(key) {
+  if (key === "check") {
+    const lines = await Promise.all(ALL_SITES.map(checkSite));
+    return { message: lines.join(" · ").slice(0, 300), refresh: true };
+  }
+  if (key === "clear") {
+    const keys = linkKeys();
+    for (const k of keys) storageRemove(k);
+    const n = keys.filter((k) => k.startsWith("stream:")).length;
+    return { message: n ? `Se borraron ${n === 1 ? "1 enlace guardado" : `${n} enlaces guardados`} y los servidores recordados.` : "No había enlaces guardados.", refresh: true };
+  }
+  throw kino.error("not_found", `acción desconocida: ${String(key).slice(0, 40)}`);
+}
+
+/** Refuses a form that switches every site off: the plugin would have nothing to search or play. */
+export async function validateSettings(values) {
+  const v = values || {};
+  if (ALL_SITES.every((id) => v[SITE_SETTING[id]] === false)) {
+    return { useAllcalidad: "Deja al menos un sitio activo" };
+  }
+  return null;
 }

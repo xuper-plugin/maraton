@@ -1,14 +1,13 @@
 {
   "id": "maraton",
   "name": "Maratón",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "apiVersion": 7,
   "entry": "plugin.js",
   "description": "Series, anime y películas en latino, castellano o subtitulado. El video se busca en tu propio aparato, sin servidores intermedios.",
   "author": "xuper-plugin",
   "hosts": [
     "serieskao.top",
-    "sololatino.net",
     "morencius.com",
     "hglink.to",
     "voe.sx",
@@ -37,6 +36,30 @@
   "color": "#2E7D6B",
   "settings": [
     {
+      "key": "sources",
+      "label": "Sitios",
+      "type": "section",
+      "hint": "De dónde salen las series, el anime y las películas"
+    },
+    {
+      "key": "useSerieskao",
+      "label": "Usar SeriesKao",
+      "type": "toggle",
+      "default": true
+    },
+    {
+      "key": "useAllcalidad",
+      "label": "Usar AllCalidad",
+      "type": "toggle",
+      "default": true
+    },
+    {
+      "key": "playback",
+      "label": "Reproducción",
+      "type": "section",
+      "hint": "Cómo se elige el servidor de cada video"
+    },
+    {
       "key": "lang",
       "label": "Idioma preferido",
       "type": "select",
@@ -55,8 +78,78 @@
           "label": "Subtitulado"
         }
       ]
+    },
+    {
+      "key": "server",
+      "label": "Probar primero",
+      "type": "select",
+      "default": "auto",
+      "options": [
+        {
+          "value": "auto",
+          "label": "El que funcionó la última vez"
+        },
+        {
+          "value": "streamwish",
+          "label": "Streamwish"
+        },
+        {
+          "value": "voe",
+          "label": "Voe"
+        },
+        {
+          "value": "vidhide",
+          "label": "Vidhide"
+        },
+        {
+          "value": "vimeos",
+          "label": "Vimeos"
+        },
+        {
+          "value": "goodstream",
+          "label": "Goodstream"
+        }
+      ]
+    },
+    {
+      "key": "keepLinks",
+      "label": "Recordar enlaces unas horas",
+      "type": "toggle",
+      "default": true,
+      "hint": "Abre más rápido lo que ya viste hoy"
+    },
+    {
+      "key": "tools",
+      "label": "Estado",
+      "type": "section"
+    },
+    {
+      "key": "state",
+      "label": "Estado",
+      "type": "status"
+    },
+    {
+      "key": "check",
+      "label": "Revisar sitios",
+      "type": "action"
+    },
+    {
+      "key": "clear",
+      "label": "Borrar enlaces guardados",
+      "type": "action",
+      "confirm": "¿Borrar los enlaces y servidores recordados?"
     }
   ],
   "icon": "icon.png",
-  "homepage": "https://github.com/xuper-plugin/maraton"
+  "homepage": "https://github.com/xuper-plugin/maraton",
+  "section": {
+    "label": "Maratón"
+  },
+  "theme": {
+    "accent": "#3FB08F",
+    "onAccent": "#0B1F1A",
+    "background": "#0B1613",
+    "surface": "#14302A",
+    "highlight": "#F2C14E"
+  }
 }

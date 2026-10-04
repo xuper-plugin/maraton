@@ -39,6 +39,7 @@ globalThis.kino = {
     get: (k) => (store.has(k) ? store.get(k) : null),
     set: (k, v, o) => { store.set(k, v); ttls.set(k, o && o.ttlMs); },
     remove: (k) => { store.delete(k); },
+    keys: () => [...store.keys()],
   },
   config: { get: (k) => config[k] },
 };
@@ -362,4 +363,129 @@ test("resolve never starts a page it has no time left for", async () => {
     Date.now = realNow;
     delete pages["https://serieskao.top/vidurl/tt5753856-1x01/"];
   }
+});
+
+const ACG = "https://tmdb.allcalidad.re/v1/taxonomies/genre/acci%C3%B3n/items?page=1";
+
+test("Usar SeriesKao / Usar AllCalidad: a switched-off site is never asked", async () => {
+  const asked = [];
+  const saved = kino.fetch;
+  kino.fetch = async (url, o) => { asked.push(new URL(url).host); return saved(url, o); };
+  try {
+    config.useSerieskao = false;
+    assert.deepEqual(plugin.activeSites(), ["ac"]);
+    await plugin.search({ q: "dark" }).catch(() => []);
+    assert.ok(asked.length > 0 && asked.every((h) => h === "tmdb.allcalidad.re"));
+    config.useSerieskao = true;
+    config.useAllcalidad = false;
+    asked.length = 0;
+    await plugin.search({ q: "dark" });
+    assert.ok(asked.every((h) => h === "serieskao.top"));
+  } finally {
+    kino.fetch = saved;
+  }
+});
+
+test("search tries TMDB's original title and the alternative titles when the first ones find nothing", async () => {
+  const asked = [];
+  const saved = kino.fetch;
+  kino.fetch = async (url, o) => { asked.push(url); return saved(url, o); };
+  // The site answers an empty results page for the Spanish title, as serieskao does.
+  pages["https://serieskao.top/search?s=Oscuro"] = "<html><body><h1>Resultados para: Oscuro</h1></body></html>";
+  try {
+    config.useAllcalidad = false;
+    await plugin.search({ q: "Oscuro", originalTitle: "dark", altTitles: ["Dunkel"] });
+    assert.deepEqual(asked.map((u) => decodeURIComponent(new URL(u).search)), ["?s=Oscuro", "?s=dark"]);
+  } finally {
+    delete pages["https://serieskao.top/search?s=Oscuro"];
+    kino.fetch = saved;
+  }
+});
+
+test("Probar primero puts the chosen server ahead of the remembered one, never ahead of the language", () => {
+  assert.equal(plugin.rankServers(mixed, "lat", "streamwish", "vidhide")[0].url, "https://morencius.com/embed/a");
+  assert.equal(plugin.rankServers(mixed, "esp", "", "vidhide")[0].url, "https://voe.sx/e/esp");
+  assert.equal(plugin.rankServers(mixed, "lat", "", "auto")[0].url, "https://hglink.to/e/lat");
+});
+
+test("Recordar enlaces off: nothing cached, every play captures", async () => {
+  pages["https://serieskao.top/vidurl/tt5753856-1x01/"] = fixture("sk-vidurl-embed69.html");
+  config.keepLinks = false;
+  captured.length = 0;
+  captureAnswer = async () => ({ media: [{ url: "https://cdn.example/master.m3u8", headers: {} }], subtitles: [], finalUrl: "" });
+  try {
+    await plugin.resolve("sk|/serie/dark/temporada/1/capitulo/1");
+    await plugin.resolve("sk|/serie/dark/temporada/1/capitulo/1");
+    assert.equal(captured.length, 2);
+    assert.ok(![...store.keys()].some((k) => k.startsWith("stream:")));
+  } finally {
+    delete pages["https://serieskao.top/vidurl/tt5753856-1x01/"];
+  }
+});
+
+test("categories: one tile per genre an active site has, each opening a genre browse", async () => {
+  const all = await plugin.categories();
+  assert.equal(all.length, 22);
+  assert.deepEqual(all[0], { id: "genre-accion", title: "Acción", ref: "genre|accion" });
+  config.useAllcalidad = false;
+  const skOnly = await plugin.categories();
+  assert.ok(skOnly.some((t) => t.ref === "genre|dorama"));
+  assert.ok(!skOnly.some((t) => t.ref === "genre|musica"));
+});
+
+test("a genre page interleaves both sites; one site missing still pages", async () => {
+  pages["https://serieskao.top/generos/accion?page=1"] = fixture("sk-generos-accion-2.html");
+  pages[ACG] = fixture("ac-genre-accion-1.json");
+  try {
+    const p = await plugin.browse("genre|accion", null);
+    assert.equal(p.next, "2");
+    assert.deepEqual(p.items.slice(0, 4).map((i) => i.ref.slice(0, 3)), ["sk|", "ac|", "sk|", "ac|"]);
+    delete pages[ACG];
+    const skOnly = await plugin.browse("genre|accion", null);
+    assert.ok(skOnly.items.length > 0 && skOnly.items.every((i) => i.ref.startsWith("sk|")));
+    await assert.rejects(plugin.browse("genre|nope", null), (e) => e.code === "not_found");
+  } finally {
+    delete pages["https://serieskao.top/generos/accion?page=1"];
+    delete pages[ACG];
+  }
+});
+
+test("section: four tabs, the chosen one answered, an unknown tab falls back to Series", async () => {
+  const sec = await plugin.section({ tab: "peliculas" });
+  assert.deepEqual(sec.tabs.map((t) => t.id), ["series", "anime", "peliculas", "generos"]);
+  assert.equal(sec.tab, "peliculas");
+  assert.match(sec.hero.text, /latino/);
+  assert.equal((await plugin.section({ tab: "x" })).tab, "series");
+  config.lang = "sub";
+  assert.match((await plugin.section({ tab: null })).hero.text, /subtitulada/);
+});
+
+test("settingsStatus names the active sites, the language and the server that last worked", async () => {
+  assert.equal((await plugin.settingsStatus()).state, "2 sitios activos (SeriesKao, AllCalidad) · Latino · todavía sin reproducir nada");
+  store.set("server:sk", JSON.stringify({ server: "streamwish" }));
+  config.useAllcalidad = false;
+  config.lang = "esp";
+  assert.equal((await plugin.settingsStatus()).state, "1 sitio activo (SeriesKao) · Castellano · último servidor que funcionó: Streamwish");
+});
+
+test("Revisar sitios says which site answers; Borrar enlaces guardados empties the cache and the memory", async () => {
+  pages["https://serieskao.top/"] = fixture("sk-home.html");
+  try {
+    const r = await plugin.action("check");
+    assert.match(r.message, /^SeriesKao: responde \(\d+ ms\) · AllCalidad: no responde$/);
+    assert.equal(r.refresh, true);
+  } finally {
+    delete pages["https://serieskao.top/"];
+  }
+  store.set("stream:a", "{}"); store.set("stream:b", "{}"); store.set("server:sk", "{}"); store.set("imdb:tt1", "{}");
+  assert.match((await plugin.action("clear")).message, /2 enlaces guardados/);
+  assert.deepEqual([...store.keys()], ["imdb:tt1"]);
+  assert.equal((await plugin.action("clear")).message, "No había enlaces guardados.");
+  await assert.rejects(plugin.action("nope"), (e) => e.code === "not_found");
+});
+
+test("validateSettings refuses switching every site off, and only that", async () => {
+  assert.deepEqual(await plugin.validateSettings({ useSerieskao: false, useAllcalidad: false }), { useAllcalidad: "Deja al menos un sitio activo" });
+  assert.equal(await plugin.validateSettings({ useSerieskao: false, useAllcalidad: true }), null);
+  assert.equal(await plugin.validateSettings({}), null);
 });
