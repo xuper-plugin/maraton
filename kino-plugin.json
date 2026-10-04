@@ -1,7 +1,7 @@
 {
   "id": "series-web",
   "name": "Series web",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "apiVersion": 7,
   "entry": "plugin.js",
   "description": "Series y anime de sitios web en español. Abre la página del episodio en un navegador oculto para encontrar el video.",

@@ -302,6 +302,7 @@ export function pagesToOpen(siteId, episodeUrl, servers) {
 
 const MAX_PAGES = 3;
 const CAPTURE_MS = 25000;
+const CAPTURE_MS_WITH_MORE = 15000;
 
 function startHost(url) {
   try { return new URL(url).host; } catch (_) { return ""; }
@@ -390,6 +391,35 @@ export function embed69Servers(html) {
   return out.sort((a, b) => (/lat/i.test(b.lang) ? 1 : 0) - (/lat/i.test(a.lang) ? 1 : 0));
 }
 
+/**
+ * Which embed hosts to try first, measured on a Fire TV (Dark 1x01): streamwish (hglink.to) handed over its m3u8 in
+ * 9 s, vidhide (morencius.com) never requested video in 25 s. Unknown servers go between the two ends.
+ */
+const SERVER_PREFERENCE = [
+  { rx: /streamwish|hglink/i, rank: 0 },
+  { rx: /voe/i, rank: 1 },
+  { rx: /vidhide|morencius/i, rank: 3 },
+];
+const UNKNOWN_SERVER_RANK = 2;
+
+function serverRank(f) {
+  const hit = SERVER_PREFERENCE.find((p) => p.rx.test(f.server || "") || p.rx.test(startHost(f.url)));
+  return hit ? hit.rank : UNKNOWN_SERVER_RANK;
+}
+
+/** Latino first, then by [SERVER_PREFERENCE]; the page's own order breaks ties. */
+export function rankServers(list) {
+  return list
+    .map((f, i) => ({ f, i }))
+    .sort((a, b) => ((/lat/i.test(b.f.lang) ? 1 : 0) - (/lat/i.test(a.f.lang) ? 1 : 0)) || (serverRank(a.f) - serverRank(b.f)) || (a.i - b.i))
+    .map((x) => x.f);
+}
+
+/** A page gets the whole budget only when it is the last one left; before that, a dead server must not eat it all. */
+export function captureTimeout(pagesLeftAfterThis) {
+  return pagesLeftAfterThis > 0 ? CAPTURE_MS_WITH_MORE : CAPTURE_MS;
+}
+
 /** Every embed69 server behind the episode's own player pages (`/vidurl/…`), or [] when there is none. */
 async function fastServers(site, episodeUrl, servers) {
   const out = [];
@@ -415,17 +445,19 @@ export async function resolve(ref) {
   kino.log(`resolve ${ref}: servers [${servers.map(safe).join(", ")}]`);
   // Fast path: decrypt embed69's server list and open each embed host's page directly (its player is then the top
   // document, so autoplay reaches it). Without it, fall back to opening the episode page and digging through frames.
-  const fast = await fastServers(site, episodeUrl, servers);
+  const fast = rankServers(await fastServers(site, episodeUrl, servers));
   const pages = fast.length
     ? fast.slice(0, MAX_PAGES).map((f) => f.url)
     : pagesToOpen(siteId, episodeUrl, servers).filter((u) => Object.values(SITES).some((s) => startHost(u) === startHost(s.base)));
   kino.log(`resolve ${siteId}: ${fast.length ? "embed69 fast path" : "no fast path"}, capture on ${pages.length} page(s): [${pages.map(safe).join(", ")}]`);
   let lastError = null;
-  for (const url of pages) {
+  for (let p = 0; p < pages.length; p++) {
+    const url = pages[p];
     const started = Date.now();
-    kino.log(`capture ${safe(url)} (timeout ${CAPTURE_MS} ms)`);
+    const timeoutMs = captureTimeout(pages.length - p - 1);
+    kino.log(`capture ${safe(url)} (timeout ${timeoutMs} ms)`);
     try {
-      const got = await kino.browser.capture(url, { timeoutMs: CAPTURE_MS, headers: { Referer: site.base + "/" } });
+      const got = await kino.browser.capture(url, { timeoutMs, headers: { Referer: site.base + "/" } });
       kino.log(`capture ok in ${Date.now() - started} ms: ${got.media.length} media [${got.media.map((m) => safe(m.url)).join(", ")}], ${got.subtitles.length} subtitles`);
       const [first, ...rest] = got.media;
       if (!first) continue;

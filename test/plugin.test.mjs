@@ -99,8 +99,28 @@ test("resolve takes the embed69 fast path: captures the decrypted embed pages, n
   try {
     const stream = await plugin.resolve("sk|/serie/dark/temporada/1/capitulo/1");
     assert.equal(stream.url, "https://cdn.example/master.m3u8");
-    assert.equal(new URL(captured[0]).host, "morencius.com");
+    // Preference order: streamwish (hglink.to) before vidhide (morencius.com), which goes last.
+    assert.equal(new URL(captured[0]).host, "hglink.to");
   } finally {
     delete pages["https://serieskao.top/vidurl/tt5753856-1x01/"];
   }
+});
+
+test("servers: latino first, then streamwish/hglink, voe, unknown, vidhide/morencius last", () => {
+  const list = [
+    { lang: "LAT", server: "vidhide", url: "https://morencius.com/embed/a" },
+    { lang: "SUB", server: "streamwish", url: "https://hglink.to/e/s" },
+    { lang: "LAT", server: "filemoon", url: "https://filemoon.example/e/f" },
+    { lang: "LAT", server: "voe", url: "https://voe.sx/e/v" },
+    { lang: "LAT", server: "streamwish", url: "https://hglink.to/e/l" },
+  ];
+  assert.deepEqual(plugin.rankServers(list).map((f) => f.url), [
+    "https://hglink.to/e/l", "https://voe.sx/e/v", "https://filemoon.example/e/f", "https://morencius.com/embed/a", "https://hglink.to/e/s",
+  ]);
+});
+
+test("a page gets 15 s while others remain and the full 25 s when it is the last", () => {
+  assert.equal(plugin.captureTimeout(2), 15000);
+  assert.equal(plugin.captureTimeout(1), 15000);
+  assert.equal(plugin.captureTimeout(0), 25000);
 });
