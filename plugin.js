@@ -25,7 +25,123 @@ const SITES = {
   },
 };
 
-const ORDER = ["sk", "sl"];
+const ORDER = ["sk", "ac", "sl"];
+
+// ---------- allcalidad (a JSON API, no HTML) ----------
+//
+// allcalidad.re's front end reads everything from a JSON API on tmdb.allcalidad.re: search, catalogs, seasons with
+// their episodes, and per title (or episode) a list of embeds `{ url, server, host, lang, quality }`. Every title
+// carries its TMDB and IMDb ids, so Kino joins it with TMDB directly. The API answers JSON when asked for JSON
+// (`Accept: application/json`); without it, a description of its own schema.
+
+const AC = { id: "ac", name: "AllCalidad", api: "https://tmdb.allcalidad.re", img: "https://image.tmdb.org/t/p/" };
+
+async function acGet(path) {
+  const t0 = Date.now();
+  let r;
+  try {
+    r = await kino.fetch(AC.api + path, { headers: { "User-Agent": UA, Accept: "application/json" }, timeoutMs: FETCH_TIMEOUT_MS });
+  } catch (e) {
+    kino.log(`fetch ${safe(AC.api + path)}: ${e.code || ""} ${e.message} after ${Date.now() - t0} ms`);
+    throw kino.error("unavailable", `${AC.name}: ${e.code || "network"}`, { userMessage: `${AC.name} no responde. Vuelve a intentar en un rato.` });
+  }
+  kino.log(`fetch ${safe(AC.api + path)} -> ${r.status} in ${Date.now() - t0} ms`);
+  if (!r.ok) {
+    throw kino.error(r.status === 404 ? "not_found" : r.status === 429 ? "rate_limited" : "unavailable", `${AC.name} respondió ${r.status}`,
+      { userMessage: r.status === 404 ? `${AC.name} ya no tiene este título.` : `${AC.name} no está respondiendo bien (${r.status}).` });
+  }
+  try {
+    return r.json();
+  } catch (_) {
+    throw kino.error("unavailable", `${AC.name}: respuesta que no es JSON`, { userMessage: `${AC.name} respondió algo que no se entiende.` });
+  }
+}
+
+const AC_KINDS = ["movie", "tvshow", "anime"];
+
+/** One API title as a Kino item; null for anything that is not a movie, show or anime with a TMDB id. */
+export function acItem(it) {
+  if (!it || !AC_KINDS.includes(it.kind) || !Number.isInteger(it.tmdb_id) || !it.title) return null;
+  const item = {
+    id: `ac-${it.kind}-${it.tmdb_id}`, ref: `ac|${it.kind}/${it.tmdb_id}`, title: String(it.title).slice(0, 200),
+    kind: it.kind === "movie" ? "movie" : "series",
+  };
+  if (it.year) item.year = String(it.year);
+  if (it.poster_path) item.poster = AC.img + "w342" + it.poster_path;
+  if (it.backdrop_path) item.backdrop = AC.img + "w780" + it.backdrop_path;
+  if (it.overview) item.overview = String(it.overview).slice(0, 2000);
+  if (typeof it.vote_average === "number" && it.vote_average > 0) item.rating = Math.round(it.vote_average * 10) / 10;
+  if (it.original_title && it.original_title !== it.title) item.originalTitle = String(it.original_title).slice(0, 200);
+  const ids = {};
+  // An anime here is a TMDB show: the same id space as tvshow.
+  ids.tmdb = it.tmdb_id;
+  if (/^tt\d{5,10}$/.test(it.imdb_id || "")) ids.imdb = it.imdb_id;
+  item.ids = ids;
+  const genres = (it.genres || []).map((g) => g && g.title).filter(Boolean).slice(0, 5);
+  if (it.kind === "anime" && !genres.includes("Anime")) genres.unshift("Anime");
+  if (genres.length) item.genres = genres.slice(0, 5).map((g) => String(g).slice(0, 30));
+  if (it.quality) item.quality = String(it.quality).slice(0, 20);
+  return item;
+}
+
+function acItems(list) {
+  const seen = new Set();
+  return (list || []).map(acItem).filter((i) => i && !seen.has(i.id) && seen.add(i.id));
+}
+
+async function acSearch(q) {
+  return acItems((await acGet(`/v1/search?q=${encodeURIComponent(q)}`)).items);
+}
+
+/** `ac|tvshow/70523` -> every season's episodes (in parallel), refs `ac|tvshow/70523/<season>/<episode>`. */
+async function acEpisodes(ref) {
+  const [kind, id] = ref.slice(3).split("/");
+  if (!AC_KINDS.includes(kind) || kind === "movie" || !/^\d+$/.test(id || "")) throw kino.error("not_found", "referencia inválida");
+  const item = (await acGet(`/v1/items/${kind}/${id}`)).item || {};
+  const seasons = (item.episode_seasons || []).map((x) => x.season).filter((n) => Number.isInteger(n) && n >= 1).slice(0, 50);
+  const lists = await Promise.all(seasons.map(async (n) => {
+    try {
+      return ((await acGet(`/v1/items/${kind}/${id}/seasons/${n}`)).season || {}).episodes || [];
+    } catch (e) {
+      kino.log(`episodes ac ${kind}/${id} T${n}: ${e.code || ""} ${e.message}`);
+      return [];
+    }
+  }));
+  const episodes = [];
+  for (const e of [].concat(...lists)) {
+    if (!e || !Number.isInteger(e.season) || !Number.isInteger(e.episode) || e.episode < 1 || e.playable === false) continue;
+    const ep = { season: e.season, number: e.episode, ref: `ac|${kind}/${id}/${e.season}/${e.episode}` };
+    if (e.title) ep.title = String(e.title).slice(0, 200);
+    if (e.overview) ep.overview = String(e.overview).slice(0, 2000);
+    if (e.still_path) ep.still = AC.img + "w300" + e.still_path;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(e.air_date || "")) ep.airDate = e.air_date;
+    if (Number.isInteger(e.runtime) && e.runtime >= 1 && e.runtime <= 1000) ep.runtimeMinutes = e.runtime;
+    episodes.push(ep);
+  }
+  episodes.sort((a, b) => a.season - b.season || a.number - b.number);
+  const base = acItem(item) || {};
+  const series = {};
+  for (const k of ["title", "poster", "backdrop", "overview", "year", "ids", "genres"]) if (base[k]) series[k] = base[k];
+  kino.log(`episodes ${ref}: ${episodes.length} in ${seasons.length} season(s)`);
+  return { series, episodes };
+}
+
+/** A playback answer's embeds as resolve's server list `{ lang, server, url }` (server named after its host). */
+export function acServers(answer) {
+  return ((answer && answer.embeds) || [])
+    .filter((e) => e && /^https:\/\//.test(e.url || ""))
+    .map((e) => ({ lang: e.lang || "", server: String(e.host || startHost(e.url)).toLowerCase().split(".")[0], url: e.url }));
+}
+
+/** `ac|movie/603` or `ac|tvshow/70523/1/2` -> its playback path. */
+export function acPlaybackPath(ref) {
+  const parts = parseServerRef(ref).base.slice(3).split("/");
+  const [kind, id, season, episode] = parts;
+  if (!AC_KINDS.includes(kind) || !/^\d+$/.test(id || "")) throw kino.error("not_found", "referencia inválida");
+  if (kind === "movie") return `/v1/playback/movie/${id}`;
+  if (!/^\d+$/.test(season || "") || !/^\d+$/.test(episode || "")) throw kino.error("not_found", "falta el episodio");
+  return `/v1/playback/${kind}/${id}?season=${season}&episode=${episode}`;
+}
 
 // ---------- small helpers ----------
 
@@ -168,6 +284,20 @@ export async function search(query) {
   if (!q) return [];
   const tries = [q, kino.rank.shortQuery(q)].filter((v, i, a) => v && a.indexOf(v) === i);
   const lists = await Promise.all(ORDER.map(async (siteId) => {
+    if (siteId === AC.id) {
+      for (const t of tries) {
+        try {
+          const t0 = Date.now();
+          const found = await acSearch(t);
+          kino.log(`search ac "${t.slice(0, 60)}": ${found.length} results in ${Date.now() - t0} ms`);
+          if (found.length) return found;
+        } catch (e) {
+          kino.log(`search ac: ${e.code || ""} ${e.message}`);
+          return [];
+        }
+      }
+      return [];
+    }
     const site = SITES[siteId];
     for (const t of tries) {
       try {
@@ -254,13 +384,33 @@ export async function home() {
       return null;
     }
   }));
-  const out = [...(await front), ...rows.filter(Boolean)];
+  const acRows = await Promise.all([
+    { kind: "movie", title: "Películas recientes", genre: "peliculas" },
+    { kind: "tvshow", title: "Series recientes", genre: "series" },
+  ].map(async (r) => {
+    try {
+      const items = acItems((await acGet(`/v1/items?kind=${r.kind}&page=1`)).items);
+      return items.length ? { id: `ac-${r.kind}`, title: r.title, items, ref: `row|ac|${r.kind}`, genre: r.genre } : null;
+    } catch (e) {
+      kino.log(`home ac/${r.kind}: ${e.code || ""} ${e.message}`);
+      return null;
+    }
+  }));
+  const out = [...(await front), ...rows.filter(Boolean), ...acRows.filter(Boolean)];
   kino.log(`home: ${out.length} rows [${out.map((r) => `${r.id}:${r.items.length}`).join(", ")}]`);
   return out;
 }
 
 export async function browse(ref, cursor) {
   const [, siteId, kind] = String(ref).split("|");
+  if (siteId === AC.id) {
+    if (!AC_KINDS.includes(kind)) throw kino.error("not_found", "fila desconocida");
+    const n = Math.max(1, parseInt(cursor || "1", 10) || 1);
+    const answer = await acGet(`/v1/items?kind=${kind}&page=${n}`);
+    const items = acItems(answer.items);
+    const more = answer.pagination && answer.pagination.has_next;
+    return more && items.length ? { items, next: String(n + 1) } : { items };
+  }
   const site = SITES[siteId];
   if (!site || !site.catalog[kind]) throw kino.error("not_found", "fila desconocida");
   const n = Math.max(1, parseInt(cursor || "1", 10) || 1);
@@ -318,6 +468,7 @@ export function parseEpisodes(siteId, html) {
 }
 
 export async function episodes(ref) {
+  if (String(ref).startsWith("ac|")) return acEpisodes(String(ref));
   const { siteId, site, path } = splitRef(ref);
   const html = await page(site, path);
   const list = parseEpisodes(siteId, html);
@@ -634,7 +785,8 @@ function streamOf(got, server) {
 }
 
 export async function resolve(ref, options) {
-  const { siteId, site, path } = splitRef(ref);
+  const isAc = String(ref).startsWith("ac|");
+  const { siteId, site, path } = isAc ? { siteId: AC.id, site: null, path: "" } : splitRef(ref);
   const t0 = Date.now();
   // A retry (the CDN said 401/403/409) or a normal call: a retry never gets the cached copy back.
   if (options && options.retry) {
@@ -647,24 +799,33 @@ export async function resolve(ref, options) {
       return cached;
     }
   }
-  const episodeUrl = abs(site, path);
-  const html = await page(site, path);
-  const servers = serversOf(siteId, html);
-  kino.log(`resolve ${ref}: servers [${servers.map(safe).join(", ")}]`);
-  // Fast path: decrypt embed69's server list and open each embed host's page directly (its player is then the top
-  // document, so autoplay reaches it). Without it, fall back to opening the episode page and digging through frames.
   const lang = preferredLang();
   const remembered = (storageGet(serverKey(siteId)) || {}).server || "";
   const { only } = parseServerRef(ref);
-  let fast = rankServers(await fastServers(site, episodeUrl, servers), lang, remembered);
+  let fast;
+  let fallbackPages = [];
+  if (isAc) {
+    // allcalidad lists its embeds itself: no page to read, no fast path needed.
+    fast = rankServers(acServers(await acGet(acPlaybackPath(ref))), lang, remembered);
+    kino.log(`resolve ${ref}: ${fast.length} embed(s) [${fast.map((f) => `${f.lang}/${f.server}@${startHost(f.url)}`).join(", ")}]`);
+  } else {
+    const episodeUrl = abs(site, path);
+    const html = await page(site, path);
+    const servers = serversOf(siteId, html);
+    kino.log(`resolve ${ref}: servers [${servers.map(safe).join(", ")}]`);
+    // Fast path: decrypt embed69's server list and open each embed host's page directly (its player is then the top
+    // document, so autoplay reaches it). Without it, fall back to opening the episode page and digging through frames.
+    fast = rankServers(await fastServers(site, episodeUrl, servers), lang, remembered);
+    fallbackPages = pagesToOpen(siteId, episodeUrl, servers).filter((u) => Object.values(SITES).some((x) => startHost(u) === startHost(x.base)));
+  }
   if (only) {
     fast = fast.filter((f) => langOf(f.lang) === only.lang && (f.server || "").toLowerCase() === only.server);
     if (!fast.length) throw kino.error("not_found", `sin el servidor ${only.lang}/${only.server}`, { userMessage: "Ese servidor ya no está disponible para este video." });
   }
   const targets = fast.length
     ? fast.slice(0, MAX_PAGES)
-    : pagesToOpen(siteId, episodeUrl, servers).filter((u) => Object.values(SITES).some((s) => startHost(u) === startHost(s.base))).map((url) => ({ url }));
-  kino.log(`resolve ${siteId}: ${fast.length ? "embed69 fast path" : "no fast path"} (idioma ${lang}, último servidor ${remembered || "-"}), capture on ${targets.length} page(s): [${targets.map((t) => `${t.lang ? t.lang + "/" : ""}${safe(t.url)}`).join(", ")}]`);
+    : fallbackPages.map((url) => ({ url }));
+  kino.log(`resolve ${siteId}: ${isAc ? "API embeds" : fast.length ? "embed69 fast path" : "no fast path"} (idioma ${lang}, último servidor ${remembered || "-"}), capture on ${targets.length} page(s): [${targets.map((t) => `${t.lang ? t.lang + "/" : ""}${safe(t.url)}`).join(", ")}]`);
   let lastError = null;
   for (let p = 0; p < targets.length; p++) {
     const target = targets[p];
@@ -672,7 +833,7 @@ export async function resolve(ref, options) {
     const timeoutMs = captureTimeout(targets.length - p - 1);
     kino.log(`capture ${safe(target.url)} (timeout ${timeoutMs} ms)`);
     try {
-      const got = await kino.browser.capture(target.url, { timeoutMs, headers: { Referer: site.base + "/" } });
+      const got = await kino.browser.capture(target.url, { timeoutMs, headers: { Referer: (site ? site.base : "https://allcalidad.re") + "/" } });
       kino.log(`capture ok in ${Date.now() - started} ms: ${got.media.length} media [${got.media.map((m) => safe(m.url)).join(", ")}], ${got.subtitles.length} subtitles`);
       if (!got.media.length) continue;
       const stream = streamOf(got, target);

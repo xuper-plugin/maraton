@@ -21,7 +21,7 @@ const kinoError = (code, message, options) => Object.assign(new Error(message), 
 globalThis.kino = {
   fetch: async (url) => {
     const body = pages[url];
-    return { ok: body !== undefined, status: body === undefined ? 404 : 200, text: () => body || "" };
+    return { ok: body !== undefined, status: body === undefined ? 404 : 200, text: () => body || "", json: () => JSON.parse(body) };
   },
   browser: { capture: async (url, opts) => { captured.push(url); return captureAnswer(url, opts); } },
   error: kinoError,
@@ -279,5 +279,58 @@ test("a server ref addresses one language/server; resolve opens only that one", 
     await assert.rejects(plugin.resolve("sk|/serie/dark/temporada/1/capitulo/1#esp/voe"), (e) => e.code === "not_found");
   } finally {
     delete pages["https://serieskao.top/vidurl/tt5753856-1x01/"];
+  }
+});
+
+const AC = "https://tmdb.allcalidad.re";
+
+test("allcalidad items carry their TMDB and IMDb ids; anime is a series", () => {
+  const items = JSON.parse(fixture("ac-search-dark.json")).items.map(plugin.acItem).filter(Boolean);
+  const dark = items.find((i) => i.ref === "ac|tvshow/70523");
+  assert.equal(dark.kind, "series");
+  assert.deepEqual(dark.ids, { tmdb: 70523, imdb: "tt5753856" });
+  assert.match(dark.poster, /^https:\/\/image\.tmdb\.org\/t\/p\/w342\//);
+  assert.ok(items.some((i) => i.kind === "movie" && i.ref.startsWith("ac|movie/")));
+  const anime = items.find((i) => i.ref.startsWith("ac|anime/"));
+  assert.equal(anime.kind, "series");
+  assert.equal(anime.genres[0], "Anime");
+  assert.equal(plugin.acItem({ kind: "person", tmdb_id: 1, title: "x" }), null);
+});
+
+test("allcalidad episodes: every season's list, with stills and air dates", async () => {
+  pages[`${AC}/v1/items/tvshow/70523`] = fixture("ac-item-tvshow-70523.json");
+  pages[`${AC}/v1/items/tvshow/70523/seasons/1`] = fixture("ac-season-70523-1.json");
+  try {
+    const r = await plugin.episodes("ac|tvshow/70523");
+    // Seasons 2 and 3 answer 404 here: they are just missing, season 1 still comes.
+    assert.equal(r.episodes.length, 10);
+    assert.equal(r.episodes[0].ref, "ac|tvshow/70523/1/1");
+    assert.equal(r.episodes[0].title, "Secretos");
+    assert.equal(r.episodes[0].airDate, "2017-12-01");
+    assert.deepEqual(r.series.ids, { tmdb: 70523, imdb: "tt5753856" });
+  } finally {
+    delete pages[`${AC}/v1/items/tvshow/70523`];
+    delete pages[`${AC}/v1/items/tvshow/70523/seasons/1`];
+  }
+});
+
+test("allcalidad playback: refs map to the API path, embeds to servers", () => {
+  assert.equal(plugin.acPlaybackPath("ac|movie/603"), "/v1/playback/movie/603");
+  assert.equal(plugin.acPlaybackPath("ac|tvshow/70523/1/2#lat/vimeos"), "/v1/playback/tvshow/70523?season=1&episode=2");
+  assert.throws(() => plugin.acPlaybackPath("ac|tvshow/70523"));
+  assert.deepEqual(plugin.acServers(JSON.parse(fixture("ac-playback-movie-603.json"))).map((f) => [plugin.langOf(f.lang), f.server]),
+    [["lat", "vimeos"], ["lat", "goodstream"]]);
+});
+
+test("allcalidad resolve opens the embed page the API lists", async () => {
+  pages[`${AC}/v1/playback/tvshow/70523?season=1&episode=1`] = fixture("ac-playback-70523-1-1.json");
+  captured.length = 0;
+  captureAnswer = async () => ({ media: [{ url: "https://cdn.example/master.m3u8", headers: {} }], subtitles: [], finalUrl: "" });
+  try {
+    const st = await plugin.resolve("ac|tvshow/70523/1/1");
+    assert.equal(st.url, "https://cdn.example/master.m3u8");
+    assert.deepEqual(captured.map((u) => new URL(u).host), ["vimeos.net"]);
+  } finally {
+    delete pages[`${AC}/v1/playback/tvshow/70523?season=1&episode=1`];
   }
 });

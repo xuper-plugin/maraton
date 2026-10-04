@@ -1,7 +1,7 @@
 {
   "id": "maraton",
   "name": "Maratón",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "apiVersion": 7,
   "entry": "plugin.js",
   "description": "Series, anime y películas en latino, castellano o subtitulado. El video se busca en tu propio aparato, sin servidores intermedios.",
@@ -11,7 +11,10 @@
     "sololatino.net",
     "morencius.com",
     "hglink.to",
-    "voe.sx"
+    "voe.sx",
+    "tmdb.allcalidad.re",
+    "vimeos.net",
+    "goodstream.one"
   ],
   "capabilities": [
     "search",

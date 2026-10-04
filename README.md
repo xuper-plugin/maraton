@@ -8,8 +8,10 @@ pasa al reproductor el video que esa página encuentra. No hay servidores interm
 
 ## Qué trae
 
-- **Buscar**: series, anime y películas.
-- **Inicio**: Nuevos episodios, Recién agregado, Series, Anime y Películas (con "Ver más").
+- **Buscar**: series, anime y películas en dos catálogos (SeriesKao y AllCalidad). Los títulos de AllCalidad traen
+  su ficha de TMDB, así que Kino les completa reparto, clasificación y más.
+- **Inicio**: Nuevos episodios, Recién agregado, Series, Anime, Películas, Películas recientes y Series recientes
+  (con "Ver más").
 - **Episodios** de todas las temporadas, y la ficha de la serie (sinopsis, póster, año).
 - **Reproducir**: prueba los servidores en orden y recuerda cuál te funcionó la última vez, así el siguiente
   episodio abre más rápido. Si el mismo episodio se vuelve a abrir en las horas siguientes, arranca sin buscar de nuevo.
@@ -34,8 +36,8 @@ versión más nueva de Kino".
 - **"Puede reproducir video desde cualquier servidor que indique"** (en rojo). El video vive en el servidor que el
   reproductor de cada página elija, y esos cambian; nunca uno de tu red local.
 - **"Puede descargar videos para verlos sin conexión"**.
-- **Se conecta con**: `serieskao.top`, `sololatino.net`, `morencius.com`, `hglink.to` y `voe.sx` (los sitios y los
-  reproductores desde donde arranca la búsqueda del video).
+- **Se conecta con**: `serieskao.top`, `tmdb.allcalidad.re`, `sololatino.net` (los catálogos) y `morencius.com`,
+  `hglink.to`, `voe.sx`, `vimeos.net`, `goodstream.one` (los reproductores donde arranca la búsqueda del video).
 
 ## Ajustes
 
