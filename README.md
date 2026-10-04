@@ -1,36 +1,74 @@
 # Maratón
 
-Series and anime from Spanish-language streaming sites, for Kino 0.9.51+ (plugin apiVersion 7). Everything runs on
-the device: titles and episodes come from the site's HTML through `kino.fetch`, and an episode plays by opening its
-page in Kino's hidden browser (`kino.browser.capture`), which reports the video request the page's own player makes.
+Series, anime y películas en español —latino, castellano o subtitulado— para ver de corrido. Todo pasa en tu
+propio aparato: el plugin lee los catálogos de los sitios, abre la página del episodio en un navegador oculto y le
+pasa al reproductor el video que esa página encuentra. No hay servidores intermedios.
 
-- Sites: `serieskao.top` (works), `sololatino.net` (behind a Cloudflare challenge from most networks: its search and
-  pages fail quietly and the plugin carries on with serieskao).
-- Capabilities: `search`, `home` (+ `browse`: the series and anime catalogs), `episodes`, `resolve`. The series info
-  carries the IMDb id read from the player page, so Kino joins it with TMDB.
-- Manifest: `"browser": true` and `"streamHosts": "any"` (both shown in red on the consent sheet): the video is on
-  whatever CDN the embedded player uses.
-- No torrents, no server.
+<img src="icon.png" width="96" alt="Maratón">
 
-Not published anywhere (no remote). To try it on a debug build, use the app's `PluginSideloadProbe`
-(`app/src/debug/.../PluginSideloadProbe.kt`): copy this folder to `files/debug-plugins/local/maraton/` and install
-`local/maraton` from Ajustes ▸ Plugins.
+## Qué trae
+
+- **Buscar**: series, anime y películas.
+- **Inicio**: Nuevos episodios, Recién agregado, Series, Anime y Películas (con "Ver más").
+- **Episodios** de todas las temporadas, y la ficha de la serie (sinopsis, póster, año).
+- **Reproducir**: prueba los servidores en orden y recuerda cuál te funcionó la última vez, así el siguiente
+  episodio abre más rápido. Si el mismo episodio se vuelve a abrir en las horas siguientes, arranca sin buscar de nuevo.
+- **Subtítulos** en español cuando la página los trae.
+- **Descargar** para ver sin conexión (en el celular).
+
+## Cómo instalarlo
+
+En Kino: **Ajustes ▸ Plugins ▸ Agregar**, escribe `xuper-plugin/maraton` y toca **Agregar**. Antes de instalar vas
+a ver con qué sitios se conecta y qué permisos pide.
+
+Necesita una versión de Kino con plugins de apiVersion 7 o más nueva; una anterior te dice "Este plugin necesita una
+versión más nueva de Kino".
+
+## Permisos que pide, y por qué
+
+- **"Puede abrir páginas web ocultas para encontrar el video"** (en rojo). Los sitios no ponen la dirección del video
+  en su HTML: la arma el reproductor de la página cuando corre. Por eso, solo cuando tocas reproducir (o cuando una
+  descarga arranca), Kino abre esa página en un navegador oculto de tu aparato, sin cookies de nada más, y se queda
+  con la dirección del video que la página pide. La página no puede tocar tu red local, abrir ventanas ni descargar
+  archivos, y se borra todo al cerrarse.
+- **"Puede reproducir video desde cualquier servidor que indique"** (en rojo). El video vive en el servidor que el
+  reproductor de cada página elija, y esos cambian; nunca uno de tu red local.
+- **"Puede descargar videos para verlos sin conexión"**.
+- **Se conecta con**: `serieskao.top`, `sololatino.net`, `morencius.com`, `hglink.to` y `voe.sx` (los sitios y los
+  reproductores desde donde arranca la búsqueda del video).
+
+## Ajustes
+
+**Idioma preferido** (Ajustes ▸ Plugins ▸ Maratón ▸ Configurar): Latino (por defecto), Castellano o Subtitulado.
+Ordena los servidores de cada episodio: primero los de tu idioma; si no hay, los otros.
+
+## Bueno saber
+
+- Un sitio caído o que pide una verificación no rompe los demás: la búsqueda muestra lo que sí respondió.
+- La dirección de cada video dura unas horas (medido: 12 h). Si se vence mientras pausas, Kino la vuelve a buscar.
+- `sololatino.net` hoy pide una verificación de Cloudflare: por ahora no aporta resultados.
+
+## Para quien mantiene el plugin
 
 ```
 node <kino>/plugins/sdk/validate.mjs .
 node <kino>/plugins/sdk/run.mjs . search dark
 node <kino>/plugins/sdk/run.mjs . episodes 'sk|/serie/dark'
-node --test test/plugin.test.mjs
+npm test
 ```
 
-`resolve` cannot run under the Node kit (no WebView: it answers `browser_unavailable`); try it in the app.
+`resolve` no corre en el kit de Node (no hay navegador: responde `browser_unavailable`); pruébalo en un aparato. En un
+build debug de Kino se puede instalar sin publicar con `PluginSideloadProbe`: copia esta carpeta a
+`files/debug-plugins/local/maraton/` e instala `local/maraton`.
 
-## Downloads
+Las descargas, medidas el 2026-10-04: la lista maestra HLS es VOD (`#EXT-X-ENDLIST`), variantes H.264 + AAC hasta
+1080p, y los segmentos llegan como `image/png` (70 bytes de PNG y después paquetes MPEG-TS alineados), que el guardado
+HLS de Kino ya limpia.
 
-Declared (`download`). Kino's queue calls `resolve` when the download runs, like a play; a stream resolved in the last
-hours comes from the plugin's cache, otherwise the hidden browser opens the embed page (phones only: Kino never
-downloads on a TV). Measured 2026-10-04 on the streamwish/hglink path: a master playlist on `audinifer.com` whose
-path carries a Unix expiry 12 h after the capture (it served until then, from another IP too, no Referer needed),
-H.264 + AAC muxed variants up to 1080p, `#EXT-X-ENDLIST` (VOD), ~310 segments per variant served from an ad CDN
-(`p16-ad-site-sign-sg.tiktokcdn.com`) as `image/png`: each segment is a 70-byte PNG header followed by aligned
-MPEG-TS packets, which Kino's HLS saver already strips (`TsSync.start`). Not yet tried on a device.
+Al crear el repositorio (no antes):
+
+```
+gh repo edit xuper-plugin/maraton --add-topic kino-plugin --description "Series, anime y películas en latino, castellano o subtitulado. El video se busca en tu propio aparato."
+```
+
+El ícono sale de `art/icon.svg` (`rsvg-convert -w 512 -h 512 art/icon.svg -o icon.png`).

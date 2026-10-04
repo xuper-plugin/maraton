@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- Maratón: a stack of episodes, the front one playing. Original artwork, no third-party marks. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#35927C"/>
+      <stop offset="1" stop-color="#1F5E50"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect x="150" y="96" width="250" height="168" rx="28" fill="#FFFFFF" opacity="0.28"/>
+  <rect x="128" y="132" width="250" height="168" rx="28" fill="#FFFFFF" opacity="0.5"/>
+  <rect x="106" y="168" width="270" height="190" rx="32" fill="#FFFFFF"/>
+  <path d="M212 216 L212 310 L296 263 Z" fill="#2E7D6B" stroke="#2E7D6B" stroke-width="14" stroke-linejoin="round"/>
+  <rect x="106" y="388" width="300" height="24" rx="12" fill="#FFFFFF" opacity="0.35"/>
+  <rect x="106" y="388" width="196" height="24" rx="12" fill="#F2C14E"/>
+</svg>

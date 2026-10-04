@@ -1,10 +1,10 @@
 {
   "id": "maraton",
   "name": "Maratón",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "apiVersion": 7,
   "entry": "plugin.js",
-  "description": "Series y anime de sitios web en español. Abre la página del episodio en un navegador oculto para encontrar el video.",
+  "description": "Series, anime y películas en latino, castellano o subtitulado. El video se busca en tu propio aparato, sin servidores intermedios.",
   "author": "xuper-plugin",
   "hosts": [
     "serieskao.top",
@@ -29,7 +29,7 @@
   ],
   "browser": true,
   "streamHosts": "any",
-  "discoverable": false,
+  "discoverable": true,
   "debug": false,
   "color": "#2E7D6B",
   "settings": [
@@ -53,5 +53,7 @@
         }
       ]
     }
-  ]
+  ],
+  "icon": "icon.png",
+  "homepage": "https://github.com/xuper-plugin/maraton"
 }
