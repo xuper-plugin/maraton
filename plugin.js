@@ -1,0 +1,327 @@
+// Series web: series and anime from Spanish-language streaming sites, played through Kino's hidden browser
+// (kino.browser.capture, apiVersion 7). Everything runs on the device: HTML is read with kino.fetch (regex, no
+// kino.html, so the Node kit runs it too) and the episode's player page is opened in the hidden browser, which
+// reports the video request the page makes.
+//
+// Refs:  "<site>|<path>"  e.g. "sk|/serie/dark" (a series), "sk|/serie/dark/temporada/1/capitulo/1" (an episode).
+// Rows:  "row|<site>|<kind>" with the catalog page number as the cursor.
+
+const UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36";
+
+const SITES = {
+  sk: {
+    name: "SeriesKao",
+    base: "https://serieskao.top",
+    search: (q) => `/search?s=${encodeURIComponent(q).replace(/%2F/gi, "/")}`,
+    catalog: { serie: "/series?page=", anime: "/animes?page=" },
+    episodeRx: /<a[^>]+href="([^"]*?\/temporada\/(\d+)\/capitulo\/(\d+))"[^>]*>([\s\S]*?)<\/a>/gi,
+  },
+  sl: {
+    name: "SoloLatino",
+    base: "https://sololatino.net",
+    search: (q) => `/buscar?q=${encodeURIComponent(q)}`,
+    catalog: { serie: "/series?page=", anime: "/animes?page=" },
+    episodeRx: /<a[^>]+href="([^"]*?\/temporada-(\d+)\/episodio-(\d+))"[^>]*>([\s\S]*?)<\/a>/gi,
+  },
+};
+
+const ORDER = ["sk", "sl"];
+
+// ---------- small helpers ----------
+
+function abs(site, href) {
+  if (/^https?:\/\//i.test(href)) return href;
+  return site.base + (href.startsWith("/") ? href : "/" + href);
+}
+
+function pathOf(site, url) {
+  return url.startsWith(site.base) ? url.slice(site.base.length) : url;
+}
+
+function text(html) {
+  return decode(String(html || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
+}
+
+function decode(s) {
+  return s.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
+}
+
+function attr(tag, name) {
+  const m = new RegExp(`${name}="([^"]*)"`, "i").exec(tag);
+  return m ? decode(m[1]) : "";
+}
+
+function idOf(siteId, path) {
+  return (siteId + "-" + path.replace(/^\/+/, "").replace(/[^A-Za-z0-9._~-]+/g, "-")).slice(0, 128);
+}
+
+function looksLikeChallenge(html) {
+  return /just a moment/i.test(html || "");
+}
+
+async function page(site, path) {
+  const r = await kino.fetch(abs(site, path), { headers: { "User-Agent": UA, Accept: "text/html" } });
+  if (!r.ok) throw kino.error(r.status === 404 ? "not_found" : "unavailable", `${site.name} respondió ${r.status}`);
+  const html = r.text();
+  // pelisplus/sololatino sit behind Cloudflare at times: a challenge page is "unavailable", never parsed as content.
+  if (looksLikeChallenge(html)) throw kino.error("unavailable", `${site.name} pide verificación de Cloudflare`);
+  return html;
+}
+
+// ---------- cards (search results, catalogs) ----------
+
+/** serieskao's `<article class="card">`: link, poster, title, year, type badge. */
+function skCards(siteId, html) {
+  const site = SITES[siteId];
+  const out = [];
+  const seen = new Set();
+  const rx = /<article class="card">([\s\S]*?)<\/article>/gi;
+  let m;
+  while ((m = rx.exec(html))) {
+    const block = m[1];
+    const link = /<a href="([^"]+)" class="card__link"/i.exec(block);
+    if (!link) continue;
+    const path = pathOf(site, decode(link[1]));
+    if (!/^\/(serie|anime)\//.test(path) || seen.has(path)) continue;
+    seen.add(path);
+    const title = text((/<h2 class="card__title">([\s\S]*?)<\/h2>/i.exec(block) || [])[1]);
+    if (!title) continue;
+    const img = /<img[^>]+>/i.exec(block);
+    const year = text((/card__badge--year">([\s\S]*?)</i.exec(block) || [])[1]);
+    const item = { id: idOf(siteId, path), ref: `${siteId}|${path}`, title, kind: "series" };
+    const poster = img ? attr(img[0], "src") : "";
+    if (/^https?:\/\//.test(poster)) item.poster = poster;
+    if (/^\d{4}$/.test(year)) item.year = year;
+    if (path.startsWith("/anime/")) item.genres = ["Anime"];
+    out.push(item);
+  }
+  return out;
+}
+
+/** sololatino's catalog: a JSON-LD ItemList (no year); its search: plain `/serie/` links with the title inside. */
+function slCards(siteId, html) {
+  const site = SITES[siteId];
+  const out = [];
+  const seen = new Set();
+  const push = (url, title, poster) => {
+    const path = pathOf(site, url);
+    if (!/^\/(serie|anime)s?\//.test(path) || seen.has(path) || !title) return;
+    seen.add(path);
+    const item = { id: idOf(siteId, path), ref: `${siteId}|${path}`, title, kind: "series" };
+    if (poster && /^https?:\/\//.test(poster)) item.poster = poster;
+    out.push(item);
+  };
+  const ld = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/gi;
+  let m;
+  while ((m = ld.exec(html))) {
+    let data;
+    try { data = JSON.parse(m[1]); } catch (_) { continue; }
+    for (const node of (data && data["@graph"]) || []) {
+      if (node["@type"] !== "ItemList") continue;
+      for (const it of node.itemListElement || []) push(it.url || (it.item && it.item.url) || "", it.name || (it.item && it.item.name) || "", it.image || "");
+    }
+  }
+  if (out.length) return out;
+  const a = /<a[^>]+href="([^"]*\/(?:serie|anime)s?\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+  while ((m = a.exec(html))) {
+    const img = /<img[^>]+>/i.exec(m[2]);
+    const title = text(m[2]) || (img ? attr(img[0], "alt") : "");
+    push(abs(site, decode(m[1])), title, img ? attr(img[0], "data-src") || attr(img[0], "src") : "");
+  }
+  return out;
+}
+
+function cards(siteId, html) {
+  return siteId === "sk" ? skCards(siteId, html) : slCards(siteId, html);
+}
+
+// ---------- search / home / browse ----------
+
+export async function search(query) {
+  const q = String((query && query.q) || "").trim();
+  if (!q) return [];
+  const tries = [q, kino.rank.shortQuery(q)].filter((v, i, a) => v && a.indexOf(v) === i);
+  const lists = await Promise.all(ORDER.map(async (siteId) => {
+    const site = SITES[siteId];
+    for (const t of tries) {
+      try {
+        const found = cards(siteId, await page(site, site.search(t)));
+        if (found.length) return found;
+      } catch (e) {
+        kino.log(`search ${siteId}: ${e.code || ""} ${e.message}`);
+        return [];
+      }
+    }
+    return [];
+  }));
+  const all = [].concat(...lists);
+  return kino.rank.filterRelevant(kino.rank.sortBySimilarity(all, q, (it) => it.title), q, (it) => it.title).slice(0, 60);
+}
+
+export async function home() {
+  const rows = [
+    { siteId: "sk", kind: "serie", title: "Series · SeriesKao", genre: "series" },
+    { siteId: "sk", kind: "anime", title: "Anime · SeriesKao", genre: "anime" },
+  ];
+  const out = await Promise.all(rows.map(async (r) => {
+    try {
+      const items = cards(r.siteId, await page(SITES[r.siteId], SITES[r.siteId].catalog[r.kind] + "1"));
+      return items.length ? { id: `${r.siteId}-${r.kind}`, title: r.title, items, ref: `row|${r.siteId}|${r.kind}`, genre: r.genre } : null;
+    } catch (e) {
+      kino.log(`home ${r.siteId}/${r.kind}: ${e.code || ""} ${e.message}`);
+      return null;
+    }
+  }));
+  return out.filter(Boolean);
+}
+
+export async function browse(ref, cursor) {
+  const [, siteId, kind] = String(ref).split("|");
+  const site = SITES[siteId];
+  if (!site || !site.catalog[kind]) throw kino.error("not_found", "fila desconocida");
+  const n = Math.max(1, parseInt(cursor || "1", 10) || 1);
+  const items = cards(siteId, await page(site, site.catalog[kind] + n));
+  return items.length ? { items, next: String(n + 1) } : { items };
+}
+
+// ---------- episodes ----------
+
+function splitRef(ref) {
+  const s = String(ref);
+  const i = s.indexOf("|");
+  const siteId = s.slice(0, i);
+  const path = s.slice(i + 1);
+  const site = SITES[siteId];
+  if (!site || !path.startsWith("/")) throw kino.error("not_found", "referencia inválida");
+  return { siteId, site, path };
+}
+
+export function parseEpisodes(siteId, html) {
+  const site = SITES[siteId];
+  const rx = new RegExp(site.episodeRx.source, "gi");
+  const seen = new Set();
+  const out = [];
+  let m;
+  while ((m = rx.exec(html))) {
+    const path = pathOf(site, decode(m[1]));
+    if (seen.has(path)) continue;
+    seen.add(path);
+    const season = parseInt(m[2], 10);
+    const number = parseInt(m[3], 10);
+    if (!season || !number) continue;
+    const ep = { season, number, ref: `${siteId}|${path}` };
+    const t = text((/episode-item__title">([\s\S]*?)</i.exec(m[4]) || [])[1] || m[4]).replace(/^\d+[\s.·:-]*/, "").trim();
+    if (t && !/^(episodio|cap[ií]tulo)\s*\d+$/i.test(t)) ep.title = t.slice(0, 200);
+    out.push(ep);
+  }
+  out.sort((a, b) => a.season - b.season || a.number - b.number);
+  return out;
+}
+
+export async function episodes(ref) {
+  const { siteId, site, path } = splitRef(ref);
+  const html = await page(site, path);
+  const list = parseEpisodes(siteId, html);
+  if (!list.length) throw kino.error("not_found", "la serie no tiene episodios en " + site.name);
+  const series = {};
+  const title = text((/<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html) || [])[1]);
+  if (title) series.title = title;
+  const og = /<meta property="og:image" content="([^"]+)"/i.exec(html);
+  if (og && /^https?:\/\//.test(og[1])) series.poster = og[1];
+  // The JSON-LD description is the whole synopsis; the meta one is cut at ~160 characters.
+  const ld = /"@type":"TVSeries"[\s\S]*?"description":"((?:[^"\\]|\\.)*)"/.exec(html);
+  const desc = /<meta name="description" content="([^"]*)"/i.exec(html);
+  if (ld) { try { series.overview = JSON.parse(`"${ld[1]}"`).slice(0, 2000); } catch (_) { /* the meta one below */ } }
+  if (!series.overview && desc) series.overview = decode(desc[1]).slice(0, 2000);
+  const year = /"datePublished":\s*"?(\d{4})/.exec(html);
+  if (year) series.year = year[1];
+  // The player pages are keyed by IMDb id (/vidurl/tt5753856-1x01/): Kino joins the series with TMDB through it.
+  // The series page has no player, so the first episode's page is read once for it.
+  try {
+    const first = await page(site, pathOf(site, list[0].ref.split("|")[1]));
+    const imdb = /\/(?:vidurl|video)\/(tt\d{5,10})-/i.exec(first);
+    if (imdb) series.ids = { imdb: imdb[1] };
+  } catch (e) {
+    kino.log(`episodes ${siteId}: no IMDb id (${e.code || ""} ${e.message})`);
+  }
+  return { series, episodes: list };
+}
+
+// ---------- resolve ----------
+
+/** The episode page's servers, in the page's order: `data-url` buttons, then the player iframe. Absolute URLs. */
+export function serversOf(siteId, html) {
+  const site = SITES[siteId];
+  const out = [];
+  const add = (u) => {
+    if (!u) return;
+    const url = abs(site, decode(u));
+    if (/^https?:\/\//i.test(url) && !out.includes(url)) out.push(url);
+  };
+  let m;
+  const btn = /<button[^>]+data-url="([^"]+)"/gi;
+  while ((m = btn.exec(html))) add(m[1]);
+  const li = /data-(?:src|player|link)="(https?:\/\/[^"]+)"/gi;
+  while ((m = li.exec(html))) add(m[1]);
+  const frame = /<iframe[^>]+(?:data-src|src)="([^"]+)"/gi;
+  while ((m = frame.exec(html))) add(m[1]);
+  return out;
+}
+
+/**
+ * Which page to open for one server. A player page on the site itself (`/vidurl/…`) blanks itself when it is not inside
+ * a frame, so for those the episode page (which frames it) is opened instead; another host's embed is opened directly.
+ */
+export function pagesToOpen(siteId, episodeUrl, servers) {
+  const site = SITES[siteId];
+  const out = [];
+  for (const s of servers) {
+    const target = s.startsWith(site.base) ? episodeUrl : s;
+    if (!out.includes(target)) out.push(target);
+  }
+  if (!out.length) out.push(episodeUrl);
+  return out.slice(0, MAX_PAGES);
+}
+
+const MAX_PAGES = 3;
+const CAPTURE_MS = 20000;
+
+function startHost(url) {
+  try { return new URL(url).host; } catch (_) { return ""; }
+}
+
+export async function resolve(ref) {
+  const { siteId, site, path } = splitRef(ref);
+  const episodeUrl = abs(site, path);
+  const html = await page(site, path);
+  const servers = serversOf(siteId, html);
+  // Only a page on one of our declared hosts can be opened (the start host must be one kino.fetch may reach).
+  const pages = pagesToOpen(siteId, episodeUrl, servers).filter((u) => Object.values(SITES).some((s) => startHost(u) === startHost(s.base)));
+  kino.log(`resolve ${siteId}: ${servers.length} servers, opening ${pages.length} page(s)`);
+  let lastError = null;
+  for (const url of pages) {
+    const started = Date.now();
+    try {
+      const got = await kino.browser.capture(url, { timeoutMs: CAPTURE_MS, headers: { Referer: site.base + "/" } });
+      kino.log(`capture ok in ${Date.now() - started} ms: ${got.media.length} media`);
+      const [first, ...rest] = got.media;
+      if (!first) continue;
+      const stream = { url: first.url, headers: first.headers };
+      if (first.mime) stream.mime = first.mime;
+      if (rest.length) stream.alternatives = rest.slice(0, 8).map((m) => (m.mime ? { url: m.url, mime: m.mime, headers: m.headers } : { url: m.url, headers: m.headers }));
+      const subs = (got.subtitles || []).slice(0, 10).map((s) => ({ lang: s.lang || "es", url: s.url, format: /\.srt(\?|$)/i.test(s.url) ? "srt" : "vtt" }));
+      if (subs.length) stream.subtitles = subs;
+      return stream;
+    } catch (e) {
+      lastError = e;
+      kino.log(`capture failed after ${Date.now() - started} ms on ${startHost(url)}: ${e.code || ""} ${e.message}`);
+      // No WebView, or the person never approved it: no other page will do better.
+      if (e.code === "browser_unavailable" || e.code === "not_allowed") break;
+    }
+  }
+  if (lastError && lastError.code === "browser_unavailable") {
+    throw kino.error("unavailable", "sin navegador web", { userMessage: "Este aparato no tiene navegador web, y esta fuente lo necesita para reproducir." });
+  }
+  throw kino.error("not_found", lastError ? `${lastError.code || ""} ${lastError.message}` : "sin servidores", { userMessage: "No encontramos el video de este episodio. Prueba otra fuente." });
+}
