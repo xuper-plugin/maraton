@@ -98,6 +98,9 @@ export function acItem(it) {
   if (it.kind === "anime" && !genres.includes("Anime")) genres.unshift("Anime");
   if (genres.length) item.genres = genres.slice(0, 5).map((g) => String(g).slice(0, 30));
   if (it.quality) item.quality = String(it.quality).slice(0, 20);
+  // A movie's runtime (a show's is per episode: the guide says leave it out there).
+  if (it.kind === "movie" && Number.isInteger(it.runtime) && it.runtime >= 1 && it.runtime <= 1000) item.runtimeMinutes = it.runtime;
+  if (it.quality) item.badges = [String(it.quality).slice(0, 20)];
   return item;
 }
 
@@ -273,6 +276,9 @@ function skCards(siteId, html) {
     if (/^https?:\/\//.test(poster)) item.poster = poster;
     if (/^\d{4}$/.test(year)) item.year = year;
     if (path.startsWith("/anime/")) item.genres = ["Anime"];
+    // "★ 7.7": the site's TMDB rating (0 to 10). A missing or out-of-range one is left out, never guessed.
+    const rating = parseFloat(text((/card__rating">([\s\S]*?)<\/span>/i.exec(block) || [])[1]));
+    if (rating > 0 && rating <= 10) item.rating = Math.round(rating * 10) / 10;
     out.push(item);
   }
   return out;
@@ -382,7 +388,7 @@ export function latestEpisodes(siteId, html) {
     const poster = img ? attr(img[0], "src") : "";
     if (/^https?:\/\//.test(poster)) item.poster = poster;
     const badge = text((/episode-card__badge">([\s\S]*?)</i.exec(block) || [])[1]);
-    if (badge) item.badges = [badge.slice(0, 20)];
+    item.badges = badge ? ["Nuevo episodio", badge.slice(0, 20)] : ["Nuevo episodio"];
     if (path.startsWith("/anime/")) item.genres = ["Anime"];
     out.push(item);
   }
@@ -640,6 +646,12 @@ export async function episodes(ref) {
   const desc = /<meta name="description" content="([^"]*)"/i.exec(html);
   if (ld) { try { series.overview = JSON.parse(`"${ld[1]}"`).slice(0, 2000); } catch (_) { /* the meta one below */ } }
   if (!series.overview && desc) series.overview = decode(desc[1]).slice(0, 2000);
+  // Genres and rating from the page's own hero (TMDB's, translated by the site).
+  const genres = [];
+  const grx = /detail-hero__genre">([\s\S]*?)<\/a>/gi;
+  let gm;
+  while ((gm = grx.exec(html)) && genres.length < 5) genres.push(text(gm[1]).slice(0, 30));
+  if (genres.length) series.genres = genres;
   const year = /"datePublished":\s*"?(\d{4})/.exec(html);
   if (year) series.year = year[1];
   // The player pages are keyed by IMDb id (/vidurl/tt5753856-1x01/): Kino joins the series with TMDB through it.

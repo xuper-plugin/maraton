@@ -232,7 +232,8 @@ test("home's Nuevos episodios: one series per show, newest episode as a badge", 
   for (const i of items) {
     assert.equal(i.kind, "series");
     assert.match(i.ref, /^sk\|\/(serie|anime)\/[^/]+$/);
-    assert.match(i.badges[0], /^T\d+ E\d+$/);
+    assert.equal(i.badges[0], "Nuevo episodio");
+    assert.match(i.badges[1], /^T\d+ E\d+$/);
   }
 });
 
@@ -569,4 +570,18 @@ test("a capture timeout on a known server reports that server's name", async () 
   } finally {
     delete pages["https://serieskao.top/vidurl/tt5753856-1x01/"];
   }
+});
+
+test("richer cards: serieskao ratings, allcalidad runtime/quality/genres, series genres from the page", async () => {
+  config.useAllcalidad = false;
+  const dark = (await plugin.search({ q: "dark" })).find((i) => i.ref === "sk|/serie/dark");
+  assert.equal(dark.rating, 7.7);
+  const matrix = plugin.acItem({ kind: "movie", tmdb_id: 603, title: "Matrix", runtime: 131, quality: "HD", vote_average: 8.259, genres: [{ title: "Acción" }] });
+  assert.equal(matrix.runtimeMinutes, 131);
+  assert.deepEqual(matrix.badges, ["HD"]);
+  assert.equal(matrix.rating, 8.3);
+  assert.deepEqual(matrix.genres, ["Acción"]);
+  assert.equal(plugin.acItem({ kind: "tvshow", tmdb_id: 1, title: "S", runtime: 50 }).runtimeMinutes, undefined);
+  const ep = await plugin.episodes("sk|/serie/dark");
+  assert.deepEqual(ep.series.genres, ["Crimen", "Drama", "Sci-Fi & Fantasy", "Misterio"]);
 });
