@@ -625,17 +625,17 @@ test("Matrix as measured: a capture of only a casino preroll is a failure, the n
   const AC = "https://tmdb.allcalidad.re";
   pages[`${AC}/v1/playback/movie/603`] = fixture("ac-playback-movie-603.json");
   captured.length = 0;
-  // goodstream first now (vimeos is the last resort): its player hands over only the casino preroll, vimeos plays.
-  captureAnswer = async (url) => (url.includes("goodstream")
+  // vimeos first: its player hands over only the casino preroll, goodstream plays.
+  captureAnswer = async (url) => (url.includes("vimeos")
     ? { media: [{ url: "https://cdn.jugabet.cl/promo/preroll.mp4", headers: {} }], subtitles: [], finalUrl: "" }
-    : { media: [{ url: "https://vimeos.net/hls/x/master.m3u8", headers: { Referer: "https://vimeos.net/", Cookie: "c=1" } },
+    : { media: [{ url: "https://hls2.goodstream.one/hls2/01/x/master.m3u8", headers: { Referer: "https://goodstream.one/", Cookie: "c=1" } },
       { url: "https://cdn.jugabet.cl/promo/preroll.mp4", headers: {} }], subtitles: [], finalUrl: "" });
   try {
     const st = await plugin.resolve("ac|movie/603");
-    assert.equal(st.url, "https://vimeos.net/hls/x/master.m3u8");
-    assert.deepEqual(st.headers, { Referer: "https://vimeos.net/", Cookie: "c=1" }); // capture's headers passed as is
+    assert.equal(st.url, "https://hls2.goodstream.one/hls2/01/x/master.m3u8");
+    assert.deepEqual(st.headers, { Referer: "https://goodstream.one/", Cookie: "c=1" }); // capture's headers passed as is
     assert.ok(!(st.alternatives || []).some((a) => a.url && /\.mp4/.test(a.url)));
-    assert.ok(plugin.failedServers("ac").has("goodstream"));
+    assert.ok(plugin.failedServers("ac").has("vimeos"));
     assert.ok(reports.some((r) => r[1] === "only_ads"));
   } finally {
     delete pages[`${AC}/v1/playback/movie/603`];
@@ -692,21 +692,22 @@ test("a blocked capture (human check) is a server failure, remembered and report
   }
 });
 
-test("vimeos is never the first copy while another server exists, even in the preferred language or chosen", async () => {
+test("allcalidad: vimeos before goodstream by default, a normal server again (Probar primero still wins)", async () => {
   const list = [
+    { lang: "Latino", server: "goodstream", url: "https://goodstream.one/embed-b.html" },
     { lang: "Latino", server: "vimeos", url: "https://vimeos.net/embed-a.html" },
-    { lang: "Subtitulado", server: "goodstream", url: "https://goodstream.one/embed-b.html" },
   ];
-  assert.deepEqual(plugin.lastResortLast(plugin.rankServers(list, "lat", "", "vimeos")).map((f) => f.server), ["goodstream", "vimeos"]);
-  assert.deepEqual(plugin.lastResortLast([list[0]]).map((f) => f.server), ["vimeos"]);
+  assert.deepEqual(plugin.rankServers(list).map((f) => f.server), ["vimeos", "goodstream"]);
+  assert.deepEqual(plugin.rankServers(list, "lat", "", "goodstream").map((f) => f.server), ["goodstream", "vimeos"]);
   const AC = "https://tmdb.allcalidad.re";
   pages[`${AC}/v1/playback/movie/603`] = fixture("ac-playback-movie-603.json");
   captured.length = 0;
-  captureAnswer = async () => ({ media: [{ url: "https://cdn.example/master.m3u8", headers: {} }], subtitles: [], finalUrl: "" });
+  captureAnswer = async () => ({ media: [{ url: "https://s10.vimeos.net/hls/x/master.m3u8", headers: {} }], subtitles: [], finalUrl: "" });
   try {
     const st = await plugin.resolve("ac|movie/603");
-    assert.equal(new URL(captured[0]).host, "goodstream.one");
-    assert.deepEqual(st.alternatives.map((a) => a.label), ["Latino · Vimeos"]);
+    assert.equal(new URL(captured[0]).host, "vimeos.net");
+    assert.equal(st.label, "Latino · Vimeos");
+    assert.deepEqual(st.alternatives.map((a) => a.label), ["Latino · Goodstream"]);
   } finally {
     delete pages[`${AC}/v1/playback/movie/603`];
   }
