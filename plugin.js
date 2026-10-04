@@ -56,12 +56,20 @@ function idOf(siteId, path) {
   return (siteId + "-" + path.replace(/^\/+/, "").replace(/[^A-Za-z0-9._~-]+/g, "-")).slice(0, 128);
 }
 
+/** Host and path only: never a query string (tokens live there). */
+function safe(url) {
+  const m = /^https?:\/\/([^/?#]+)([^?#]*)/i.exec(url || "");
+  return m ? m[1] + m[2].slice(0, 100) : "?";
+}
+
 function looksLikeChallenge(html) {
   return /just a moment/i.test(html || "");
 }
 
 async function page(site, path) {
+  const t0 = Date.now();
   const r = await kino.fetch(abs(site, path), { headers: { "User-Agent": UA, Accept: "text/html" } });
+  kino.log(`fetch ${safe(abs(site, path))} -> ${r.status} in ${Date.now() - t0} ms`);
   if (!r.ok) throw kino.error(r.status === 404 ? "not_found" : "unavailable", `${site.name} respondió ${r.status}`);
   const html = r.text();
   // pelisplus/sololatino sit behind Cloudflare at times: a challenge page is "unavailable", never parsed as content.
@@ -146,7 +154,9 @@ export async function search(query) {
     const site = SITES[siteId];
     for (const t of tries) {
       try {
+        const t0 = Date.now();
         const found = cards(siteId, await page(site, site.search(t)));
+        kino.log(`search ${siteId} "${t.slice(0, 60)}": ${found.length} results in ${Date.now() - t0} ms${found.length ? `, first ${found[0].ref}` : ""}`);
         if (found.length) return found;
       } catch (e) {
         kino.log(`search ${siteId}: ${e.code || ""} ${e.message}`);
@@ -156,7 +166,9 @@ export async function search(query) {
     return [];
   }));
   const all = [].concat(...lists);
-  return kino.rank.filterRelevant(kino.rank.sortBySimilarity(all, q, (it) => it.title), q, (it) => it.title).slice(0, 60);
+  const ranked = kino.rank.filterRelevant(kino.rank.sortBySimilarity(all, q, (it) => it.title), q, (it) => it.title).slice(0, 60);
+  kino.log(`search "${q.slice(0, 60)}": ${all.length} found, ${ranked.length} kept${ranked.length ? `, best ${ranked[0].ref}` : ""}`);
+  return ranked;
 }
 
 export async function home() {
@@ -224,6 +236,9 @@ export async function episodes(ref) {
   const html = await page(site, path);
   const list = parseEpisodes(siteId, html);
   if (!list.length) throw kino.error("not_found", "la serie no tiene episodios en " + site.name);
+  const perSeason = {};
+  for (const e of list) perSeason[e.season] = (perSeason[e.season] || 0) + 1;
+  kino.log(`episodes ${ref}: ${list.length} (${Object.entries(perSeason).map(([k, v]) => `T${k}:${v}`).join(" ")})`);
   const series = {};
   const title = text((/<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html) || [])[1]);
   if (title) series.title = title;
@@ -242,6 +257,7 @@ export async function episodes(ref) {
     const first = await page(site, pathOf(site, list[0].ref.split("|")[1]));
     const imdb = /\/(?:vidurl|video)\/(tt\d{5,10})-/i.exec(first);
     if (imdb) series.ids = { imdb: imdb[1] };
+    kino.log(`episodes ${siteId}: IMDb ${imdb ? imdb[1] : "not found"}`);
   } catch (e) {
     kino.log(`episodes ${siteId}: no IMDb id (${e.code || ""} ${e.message})`);
   }
@@ -298,13 +314,16 @@ export async function resolve(ref) {
   const servers = serversOf(siteId, html);
   // Only a page on one of our declared hosts can be opened (the start host must be one kino.fetch may reach).
   const pages = pagesToOpen(siteId, episodeUrl, servers).filter((u) => Object.values(SITES).some((s) => startHost(u) === startHost(s.base)));
-  kino.log(`resolve ${siteId}: ${servers.length} servers, opening ${pages.length} page(s)`);
+  kino.log(`resolve ${ref}: servers [${servers.map(safe).join(", ")}]`);
+  // No fast path: every server here is an embed whose video address only exists once its own page runs.
+  kino.log(`resolve ${siteId}: no fast path, capture on ${pages.length} page(s): [${pages.map(safe).join(", ")}]`);
   let lastError = null;
   for (const url of pages) {
     const started = Date.now();
+    kino.log(`capture ${safe(url)} (timeout ${CAPTURE_MS} ms)`);
     try {
       const got = await kino.browser.capture(url, { timeoutMs: CAPTURE_MS, headers: { Referer: site.base + "/" } });
-      kino.log(`capture ok in ${Date.now() - started} ms: ${got.media.length} media`);
+      kino.log(`capture ok in ${Date.now() - started} ms: ${got.media.length} media [${got.media.map((m) => safe(m.url)).join(", ")}], ${got.subtitles.length} subtitles`);
       const [first, ...rest] = got.media;
       if (!first) continue;
       const stream = { url: first.url, headers: first.headers };
@@ -312,6 +331,7 @@ export async function resolve(ref) {
       if (rest.length) stream.alternatives = rest.slice(0, 8).map((m) => (m.mime ? { url: m.url, mime: m.mime, headers: m.headers } : { url: m.url, headers: m.headers }));
       const subs = (got.subtitles || []).slice(0, 10).map((s) => ({ lang: s.lang || "es", url: s.url, format: /\.srt(\?|$)/i.test(s.url) ? "srt" : "vtt" }));
       if (subs.length) stream.subtitles = subs;
+      kino.log(`stream ${safe(stream.url)} mime=${stream.mime || "?"} headers=${Object.keys(stream.headers || {}).join(",")} alternatives=${(stream.alternatives || []).length}`);
       return stream;
     } catch (e) {
       lastError = e;
