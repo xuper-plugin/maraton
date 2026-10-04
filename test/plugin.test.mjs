@@ -489,3 +489,40 @@ test("validateSettings refuses switching every site off, and only that", async (
   assert.equal(await plugin.validateSettings({ useSerieskao: false, useAllcalidad: true }), null);
   assert.equal(await plugin.validateSettings({}), null);
 });
+
+test("the playing copy is labelled; every other server and language is a lazy { label, ref } alternative", () => {
+  const playing = { lang: "LAT", server: "streamwish", url: "https://hglink.to/e/lat" };
+  assert.equal(plugin.copyLabel(playing), "Latino · Streamwish");
+  const alts = plugin.alternativesOf(
+    [{ url: "https://cdn.example/index-f2.m3u8", mime: "application/vnd.apple.mpegurl", headers: { Referer: "r" } }],
+    playing, mixed, "sk|/serie/dark/temporada/1/capitulo/1");
+  assert.deepEqual(alts[0], { url: "https://cdn.example/index-f2.m3u8", headers: { Referer: "r" }, mime: "application/vnd.apple.mpegurl", label: "Latino · Streamwish (otra lista)" });
+  assert.deepEqual(alts.slice(1), [
+    { label: "Latino · Vidhide", ref: "sk|/serie/dark/temporada/1/capitulo/1#lat/vidhide" },
+    { label: "Castellano · Voe", ref: "sk|/serie/dark/temporada/1/capitulo/1#esp/voe" },
+    { label: "Subtitulado · Streamwish", ref: "sk|/serie/dark/temporada/1/capitulo/1#sub/streamwish" },
+  ]);
+  const many = Array.from({ length: 12 }, (_, i) => ({ lang: "LAT", server: `s${i}`, url: `https://h${i}.example/e` }));
+  assert.equal(plugin.alternativesOf([], playing, many, "r").length, 8);
+});
+
+test("resolve: the stream names its copy and offers the servers it did not try, not the ones that failed", async () => {
+  pages["https://serieskao.top/vidurl/tt5753856-1x01/"] = fixture("sk-vidurl-embed69.html");
+  captured.length = 0;
+  let n = 0;
+  captureAnswer = async () => {
+    if (n++ === 0) throw Object.assign(new Error("timeout"), { code: "timeout" });
+    return { media: [{ url: "https://cdn.example/master.m3u8", headers: {} }], subtitles: [], finalUrl: "" };
+  };
+  try {
+    const st = await plugin.resolve("sk|/serie/dark/temporada/1/capitulo/1");
+    assert.equal(st.label, "Latino · Voe");
+    // hglink failed, voe plays: only vidhide is left to offer.
+    assert.deepEqual(st.alternatives, [{ label: "Latino · Vidhide", ref: "sk|/serie/dark/temporada/1/capitulo/1#lat/vidhide" }]);
+    const lazy = await plugin.resolve("sk|/serie/dark/temporada/1/capitulo/1#lat/vidhide");
+    assert.equal(lazy.label, "Latino · Vidhide");
+    assert.equal(lazy.alternatives, undefined);
+  } finally {
+    delete pages["https://serieskao.top/vidurl/tt5753856-1x01/"];
+  }
+});

@@ -15,6 +15,8 @@ pasa al reproductor el video que esa página encuentra. No hay servidores interm
 - **Episodios** de todas las temporadas, y la ficha de la serie (sinopsis, póster, año).
 - **Reproducir**: prueba los servidores en orden y recuerda cuál te funcionó la última vez, así el siguiente
   episodio abre más rápido. Si el mismo episodio se vuelve a abrir en las horas siguientes, arranca sin buscar de nuevo.
+- **Otros servidores e idiomas** en la lista Servidor del reproductor ("Latino · Voe", "Subtitulado · Streamwish"…): se
+  buscan solo si los eliges o si el que está sonando falla.
 - **Subtítulos** en español cuando la página los trae.
 - **Descargar** para ver sin conexión (en el celular).
 

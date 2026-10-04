@@ -895,14 +895,46 @@ function preferredLang() {
 
 // ---------- resolve ----------
 
-function streamOf(got, server) {
+/** "Latino · Streamwish": how the player's Servidor list names one copy (at most 48 characters). */
+export function copyLabel(f) {
+  if (!f || !f.url) return "";
+  const known = Object.keys(SERVER_MATCH).find((k) => serverMatches(f, k));
+  const name = known ? SERVER_LABEL[known] : (f.server || startHost(f.url) || "Servidor");
+  const lang = f.lang ? LANG_LABEL[langOf(f.lang)] : "";
+  return (lang ? `${lang} · ${name}` : String(name)).slice(0, 48);
+}
+
+/**
+ * The other copies of a title as alternatives, best first, at most 8: first the extra playlists the same page asked
+ * for (a variant of the copy that is playing, concrete URLs), then every other server and language as a LAZY copy
+ * `{ label, ref }` that Kino resolves through `resolve(<ref>#<lang>/<server>)` only if the person picks it in the
+ * player's Servidor list or the fallback reaches it — so the first play is never slower for offering them.
+ */
+export function alternativesOf(rest, playing, others, ref) {
+  const out = rest.map((m) => {
+    const a = { url: m.url, headers: m.headers };
+    if (m.mime) a.mime = m.mime;
+    if (playing && playing.url) a.label = `${copyLabel(playing)} (otra lista)`.slice(0, 48);
+    return a;
+  });
+  for (const f of others) {
+    if (playing && f.url === playing.url) continue;
+    out.push({ label: copyLabel(f), ref: serverRef(ref, f) });
+  }
+  return out.slice(0, 8);
+}
+
+function streamOf(got, server, others = [], ref = "") {
   const [first, ...rest] = got.media;
   const stream = { url: first.url, headers: first.headers };
   if (first.mime) stream.mime = first.mime;
-  if (rest.length) stream.alternatives = rest.slice(0, 8).map((m) => (m.mime ? { url: m.url, mime: m.mime, headers: m.headers } : { url: m.url, headers: m.headers }));
+  const label = copyLabel(server);
+  if (label) stream.label = label;
+  const alternatives = alternativesOf(rest, server, others, ref);
+  if (alternatives.length) stream.alternatives = alternatives;
   // The embed's own subtitle tracks: these sites only carry Spanish ones; the label says which audio they came with.
-  const label = server && server.lang ? `Español (${LANG_LABEL[langOf(server.lang)]})` : "Español";
-  const subs = (got.subtitles || []).slice(0, 10).map((s) => ({ lang: s.lang || "es", label, url: s.url, format: /\.srt(\?|$)/i.test(s.url) ? "srt" : "vtt" }));
+  const subLabel = server && server.lang ? `Español (${LANG_LABEL[langOf(server.lang)]})` : "Español";
+  const subs = (got.subtitles || []).slice(0, 10).map((s) => ({ lang: s.lang || "es", label: subLabel, url: s.url, format: /\.srt(\?|$)/i.test(s.url) ? "srt" : "vtt" }));
   if (subs.length) stream.subtitles = subs;
   const exp = expiresInOf(first.url);
   if (exp) stream.expiresInSeconds = exp;
@@ -954,6 +986,7 @@ export async function resolve(ref, options) {
     : fallbackPages.map((url) => ({ url }));
   kino.log(`resolve ${siteId}: ${isAc ? "API embeds" : fast.length ? "embed69 fast path" : "no fast path"} (idioma ${lang}, último servidor ${remembered || "-"}), capture on ${targets.length} page(s): [${targets.map((t) => `${t.lang ? t.lang + "/" : ""}${safe(t.url)}`).join(", ")}]`);
   let lastError = null;
+  const failedHere = new Set();
   for (let p = 0; p < targets.length; p++) {
     const target = targets[p];
     const started = Date.now();
@@ -968,7 +1001,8 @@ export async function resolve(ref, options) {
       const got = await kino.browser.capture(target.url, { timeoutMs, headers: { Referer: (site ? site.base : "https://allcalidad.re") + "/" } });
       kino.log(`capture ok in ${Date.now() - started} ms: ${got.media.length} media [${got.media.map((m) => safe(m.url)).join(", ")}], ${got.subtitles.length} subtitles`);
       if (!got.media.length) continue;
-      const stream = streamOf(got, target);
+      // A lazy copy (a server ref) offers nothing more: Kino drops a lazy copy's own alternatives anyway.
+      const stream = streamOf(got, target, only ? [] : fast.filter((f) => f !== target && !failedHere.has(f.url)), parseServerRef(ref).base);
       if (target.server) storageSet(serverKey(siteId), { server: target.server.toLowerCase() });
       const expiresAtMs = stream.expiresInSeconds ? Date.now() + stream.expiresInSeconds * 1000 : 0;
       const keepMs = expiresAtMs ? Math.min(STREAM_CACHE_MAX_MS, expiresAtMs - Date.now() - EXPIRY_MARGIN_S * 1000) : STREAM_CACHE_UNKNOWN_MS;
@@ -977,6 +1011,7 @@ export async function resolve(ref, options) {
       return stream;
     } catch (e) {
       lastError = e;
+      failedHere.add(target.url);
       kino.log(`capture failed after ${Date.now() - started} ms on ${startHost(target.url)}: ${e.code || ""} ${e.message}`);
       // No WebView, or the person never approved it: no other page will do better.
       if (e.code === "browser_unavailable" || e.code === "not_allowed") break;
