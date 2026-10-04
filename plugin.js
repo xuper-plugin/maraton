@@ -766,6 +766,18 @@ function markServer(siteId, f, failed) {
   storageSet(failedKey(siteId), all, FAILED_SERVER_MS);
 }
 
+/**
+ * Servers whose stream Kino could not play even with the capture's fresh headers (vimeos: its master answers 403 to
+ * the player, measured on the Redmi with v0.5.3). They stay as a last resort: never the first copy while any other
+ * server exists, whatever the language or "Probar primero" says.
+ */
+const LAST_RESORT = ["vimeos"];
+
+export function lastResortLast(list) {
+  const isLast = (f) => LAST_RESORT.includes(serverName(f));
+  return [...list.filter((f) => !isLast(f)), ...list.filter(isLast)];
+}
+
 /** [list] with every server in [failed] moved to the end, in the same relative order. */
 export function lastIfFailed(list, failed) {
   return [...list.filter((f) => !failed.has(serverName(f))), ...list.filter((f) => failed.has(serverName(f)))];
@@ -908,12 +920,13 @@ export function embed69Servers(html) {
 
 /**
  * Which embed hosts to try first, measured on a Fire TV (Dark 1x01): streamwish (hglink.to) handed over its m3u8 in
- * 9 s, vidhide (morencius.com) never requested video in 25 s. Unknown servers go between the two ends.
+ * 9 s; vidhide (morencius.com) works when opened top-level (Redmi: 8.9 s). Unknown servers go between.
  */
 const SERVER_PREFERENCE = [
   { rx: /streamwish|hglink/i, rank: 0 },
-  { rx: /voe/i, rank: 1 },
   { rx: /vidhide|morencius/i, rank: 3 },
+  // Redmi, 2026-10-04: voe.sx now shows an ALTCHA human check before its player, so its capture comes back `blocked`.
+  { rx: /voe/i, rank: 4 },
 ];
 const UNKNOWN_SERVER_RANK = 2;
 
@@ -1152,7 +1165,7 @@ export async function resolve(ref, options) {
     fast = rankServers(await fastServers(site, episodeUrl, servers), lang, remembered, chosen);
     fallbackPages = pagesToOpen(siteId, episodeUrl, servers).filter((u) => Object.values(SITES).some((x) => startHost(u) === startHost(x.base)));
   }
-  fast = lastIfFailed(fast, failed);
+  fast = lastResortLast(lastIfFailed(fast, failed));
   if (only) {
     fast = fast.filter((f) => langOf(f.lang) === only.lang && (f.server || "").toLowerCase() === only.server);
     if (!fast.length) throw kino.error("not_found", `sin el servidor ${only.lang}/${only.server}`, { userMessage: "Ese servidor ya no está disponible para este video." });

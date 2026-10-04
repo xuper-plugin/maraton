@@ -118,7 +118,7 @@ test("resolve takes the embed69 fast path: captures the decrypted embed pages, n
   }
 });
 
-test("servers: latino first (default), then streamwish/hglink, voe, unknown, vidhide/morencius last", () => {
+test("servers: latino first (default), then streamwish/hglink, unknown, vidhide, voe last", () => {
   const list = [
     { lang: "LAT", server: "vidhide", url: "https://morencius.com/embed/a" },
     { lang: "SUB", server: "streamwish", url: "https://hglink.to/e/s" },
@@ -127,7 +127,7 @@ test("servers: latino first (default), then streamwish/hglink, voe, unknown, vid
     { lang: "LAT", server: "streamwish", url: "https://hglink.to/e/l" },
   ];
   assert.deepEqual(plugin.rankServers(list).map((f) => f.url), [
-    "https://hglink.to/e/l", "https://voe.sx/e/v", "https://filemoon.example/e/f", "https://morencius.com/embed/a", "https://hglink.to/e/s",
+    "https://hglink.to/e/l", "https://filemoon.example/e/f", "https://morencius.com/embed/a", "https://voe.sx/e/v", "https://hglink.to/e/s",
   ]);
 });
 
@@ -518,9 +518,9 @@ test("resolve: the stream names its copy and offers the servers it did not try, 
   };
   try {
     const st = await plugin.resolve("sk|/serie/dark/temporada/1/capitulo/1");
-    assert.equal(st.label, "Latino · Voe");
-    // hglink failed, voe plays: only vidhide is left to offer.
-    assert.deepEqual(st.alternatives, [{ label: "Latino · Vidhide", ref: "sk|/serie/dark/temporada/1/capitulo/1#lat/vidhide" }]);
+    assert.equal(st.label, "Latino · Vidhide");
+    // hglink failed, vidhide plays: only voe is left to offer.
+    assert.deepEqual(st.alternatives, [{ label: "Latino · Voe", ref: "sk|/serie/dark/temporada/1/capitulo/1#lat/voe" }]);
     const lazy = await plugin.resolve("sk|/serie/dark/temporada/1/capitulo/1#lat/vidhide");
     assert.equal(lazy.label, "Latino · Vidhide");
     assert.equal(lazy.alternatives, undefined);
@@ -566,7 +566,7 @@ test("a capture timeout on a known server reports that server's name", async () 
   captureAnswer = async () => { throw Object.assign(new Error("timeout"), { code: "timeout" }); };
   try {
     await plugin.resolve("sk|/serie/dark/temporada/1/capitulo/1").catch(() => {});
-    assert.deepEqual(reports.filter((r) => r[0] === "maraton:capture").map((r) => r[2]), ["server=streamwish", "server=voe", "server=vidhide"]);
+    assert.deepEqual(reports.filter((r) => r[0] === "maraton:capture").map((r) => r[2]), ["server=streamwish", "server=vidhide", "server=voe"]);
   } finally {
     delete pages["https://serieskao.top/vidurl/tt5753856-1x01/"];
   }
@@ -625,16 +625,17 @@ test("Matrix as measured: a capture of only a casino preroll is a failure, the n
   const AC = "https://tmdb.allcalidad.re";
   pages[`${AC}/v1/playback/movie/603`] = fixture("ac-playback-movie-603.json");
   captured.length = 0;
-  captureAnswer = async (url) => (url.includes("vimeos")
+  // goodstream first now (vimeos is the last resort): its player hands over only the casino preroll, vimeos plays.
+  captureAnswer = async (url) => (url.includes("goodstream")
     ? { media: [{ url: "https://cdn.jugabet.cl/promo/preroll.mp4", headers: {} }], subtitles: [], finalUrl: "" }
-    : { media: [{ url: "https://hls2.goodstream.one/hls2/01/x/master.m3u8", headers: { Referer: "https://goodstream.one/", Cookie: "c=1" } },
+    : { media: [{ url: "https://vimeos.net/hls/x/master.m3u8", headers: { Referer: "https://vimeos.net/", Cookie: "c=1" } },
       { url: "https://cdn.jugabet.cl/promo/preroll.mp4", headers: {} }], subtitles: [], finalUrl: "" });
   try {
     const st = await plugin.resolve("ac|movie/603");
-    assert.equal(st.url, "https://hls2.goodstream.one/hls2/01/x/master.m3u8");
-    assert.deepEqual(st.headers, { Referer: "https://goodstream.one/", Cookie: "c=1" }); // capture's headers passed as is
+    assert.equal(st.url, "https://vimeos.net/hls/x/master.m3u8");
+    assert.deepEqual(st.headers, { Referer: "https://vimeos.net/", Cookie: "c=1" }); // capture's headers passed as is
     assert.ok(!(st.alternatives || []).some((a) => a.url && /\.mp4/.test(a.url)));
-    assert.ok(plugin.failedServers("ac").has("vimeos"));
+    assert.ok(plugin.failedServers("ac").has("goodstream"));
     assert.ok(reports.some((r) => r[1] === "only_ads"));
   } finally {
     delete pages[`${AC}/v1/playback/movie/603`];
@@ -655,9 +656,9 @@ test("a server that failed lately goes to the back and out of the lazy copies; a
     store.delete("server:sk"); // only the failure memory may move streamwish back
     captured.length = 0;
     const st = await plugin.resolve("sk|/serie/dark/temporada/1/capitulo/1");
-    assert.equal(new URL(captured[0]).host, "voe.sx"); // streamwish now last
+    assert.equal(new URL(captured[0]).host, "morencius.com"); // streamwish now last
     assert.ok(!(st.alternatives || []).some((a) => /streamwish/i.test(a.label || "")));
-    assert.ok(!plugin.failedServers("sk").has("voe"));
+    assert.ok(!plugin.failedServers("sk").has("vidhide"));
     assert.deepEqual(plugin.lastIfFailed(mixed, new Set(["streamwish"])).map((f) => f.server), ["vidhide", "voe", "streamwish", "streamwish"]);
   } finally {
     delete pages["https://serieskao.top/vidurl/tt5753856-1x01/"];
@@ -668,4 +669,45 @@ test("at most three lazy copies, best first", () => {
   const many = Array.from({ length: 7 }, (_, i) => ({ lang: "LAT", server: `s${i}`, url: `https://h${i}.example/e` }));
   const alts = plugin.alternativesOf([], { lang: "LAT", server: "x", url: "https://p.example/e" }, many, "r");
   assert.deepEqual(alts.map((a) => a.ref), ["r#lat/s0", "r#lat/s1", "r#lat/s2"]);
+});
+
+test("Voe goes after the other known servers by default (its ALTCHA check blocks the capture)", () => {
+  const lat = [
+    { lang: "LAT", server: "voe", url: "https://voe.sx/e/1" },
+    { lang: "LAT", server: "vidhide", url: "https://morencius.com/embed/1" },
+    { lang: "LAT", server: "streamwish", url: "https://hglink.to/e/1" },
+  ];
+  assert.deepEqual(plugin.rankServers(lat).map((f) => f.server), ["streamwish", "vidhide", "voe"]);
+});
+
+test("a blocked capture (human check) is a server failure, remembered and reported", async () => {
+  pages["https://serieskao.top/vidurl/tt5753856-1x01/"] = fixture("sk-vidurl-embed69.html");
+  captureAnswer = async () => { throw Object.assign(new Error("human check"), { code: "blocked" }); };
+  try {
+    await plugin.resolve("sk|/serie/dark/temporada/1/capitulo/1").catch(() => {});
+    assert.ok(plugin.failedServers("sk").has("voe"));
+    assert.ok(reports.some((r) => r[0] === "maraton:capture" && r[1] === "blocked" && r[2] === "server=voe"));
+  } finally {
+    delete pages["https://serieskao.top/vidurl/tt5753856-1x01/"];
+  }
+});
+
+test("vimeos is never the first copy while another server exists, even in the preferred language or chosen", async () => {
+  const list = [
+    { lang: "Latino", server: "vimeos", url: "https://vimeos.net/embed-a.html" },
+    { lang: "Subtitulado", server: "goodstream", url: "https://goodstream.one/embed-b.html" },
+  ];
+  assert.deepEqual(plugin.lastResortLast(plugin.rankServers(list, "lat", "", "vimeos")).map((f) => f.server), ["goodstream", "vimeos"]);
+  assert.deepEqual(plugin.lastResortLast([list[0]]).map((f) => f.server), ["vimeos"]);
+  const AC = "https://tmdb.allcalidad.re";
+  pages[`${AC}/v1/playback/movie/603`] = fixture("ac-playback-movie-603.json");
+  captured.length = 0;
+  captureAnswer = async () => ({ media: [{ url: "https://cdn.example/master.m3u8", headers: {} }], subtitles: [], finalUrl: "" });
+  try {
+    const st = await plugin.resolve("ac|movie/603");
+    assert.equal(new URL(captured[0]).host, "goodstream.one");
+    assert.deepEqual(st.alternatives.map((a) => a.label), ["Latino · Vimeos"]);
+  } finally {
+    delete pages[`${AC}/v1/playback/movie/603`];
+  }
 });
