@@ -60,7 +60,7 @@ En **Ajustes ▸ Maratón** (o Plugins ▸ Maratón ▸ Configurar):
 | Idioma preferido | Latino (por defecto), Castellano o Subtitulado: primero se prueban los servidores de ese idioma. |
 | Probar primero | Un servidor que quieres que se pruebe antes que los demás (dentro de tu idioma). Por defecto, el que funcionó la última vez. |
 | Recordar enlaces unas horas | Si vuelves a abrir algo que ya viste hoy, arranca sin buscar de nuevo. Apágalo si un video se queda pegado. |
-| Estado | Cuántos sitios usas, tu idioma y qué servidor funcionó la última vez. |
+| Estado | Cuántos sitios usas, tu idioma y el último servidor que funcionó: el último cuya página entregó un video. El plugin no ve si después el video se reprodujo bien. |
 | Revisar sitios | Prueba ahora cada sitio y te dice cuál responde y cuál pide una verificación. |
 | Borrar enlaces guardados | Olvida los enlaces recordados y los servidores que funcionaron. |
 

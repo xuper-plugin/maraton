@@ -456,10 +456,9 @@ test("section: four tabs, the chosen one answered, an unknown tab falls back to 
   const sec = await plugin.section({ tab: "peliculas" });
   assert.deepEqual(sec.tabs.map((t) => t.id), ["series", "anime", "peliculas", "generos"]);
   assert.equal(sec.tab, "peliculas");
-  assert.match(sec.hero.text, /latino/);
+  // No site answered in this test: no rows, so no hero (never a text-only band).
+  assert.equal(sec.hero, undefined);
   assert.equal((await plugin.section({ tab: "x" })).tab, "series");
-  config.lang = "sub";
-  assert.match((await plugin.section({ tab: null })).hero.text, /subtitulada/);
 });
 
 test("settingsStatus names the active sites, the language and the server that last worked", async () => {
@@ -711,4 +710,16 @@ test("allcalidad: vimeos before goodstream by default, a normal server again (Pr
   } finally {
     delete pages[`${AC}/v1/playback/movie/603`];
   }
+});
+
+test("hero: a featured title's backdrop first, else a poster, else no hero at all", () => {
+  const withBackdrop = [{ items: [{ title: "A", poster: "https://p/a.jpg" }, { title: "B", backdrop: "https://b/b.jpg", overview: "Sinopsis B" }] }];
+  assert.deepEqual(plugin.heroOf(withBackdrop), { title: "B", text: "Sinopsis B", image: "https://b/b.jpg" });
+  const posterOnly = plugin.heroOf([{ items: [{ title: "A", poster: "https://p/a.jpg" }] }]);
+  assert.equal(posterOnly.image, "https://p/a.jpg");
+  assert.match(posterOnly.text, /latino/);
+  config.lang = "sub";
+  assert.match(plugin.heroOf([{ items: [{ title: "A", poster: "https://p/a.jpg" }] }]).text, /subtitulada/);
+  assert.equal(plugin.heroOf([{ items: [{ title: "A" }] }]), null);
+  assert.equal(plugin.heroOf([]), null);
 });

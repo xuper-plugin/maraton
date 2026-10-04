@@ -535,6 +535,20 @@ const TABS = [
 /** The genres the Géneros tab shows as rows (each with "Ver más"); the rest are in Categorías. */
 const TAB_GENRES = ["accion", "comedia", "drama", "terror", "animacion", "ciencia-ficcion"];
 
+/**
+ * The page's hero: a featured title of the tab with a real picture — the first with a wide backdrop (allcalidad's
+ * TMDB backdrops), else the first with a poster. No picture at all, no hero: a text-only hero left a blank band above
+ * the rows on the phone (Redmi, v0.5.5).
+ */
+export function heroOf(rows) {
+  const items = rows.flatMap((r) => r.items || []);
+  const featured = items.find((i) => i.backdrop) || items.find((i) => i.poster);
+  if (!featured) return null;
+  const lang = ({ lat: "latino", esp: "castellano", sub: "versión subtitulada" })[preferredLang()];
+  const text = featured.overview || `Para ver en ${lang}. Cambia el idioma, los sitios y el servidor en Ajustes ▸ Maratón.`;
+  return { title: featured.title, text: text.slice(0, 300), image: featured.backdrop || featured.poster };
+}
+
 export async function section({ tab } = {}) {
   const chosen = TABS.some((t) => t.id === tab) ? tab : "series";
   const sites = activeSites();
@@ -548,12 +562,9 @@ export async function section({ tab } = {}) {
     rows = await rowsOf([chosen], sites);
     if (chosen === "series" && sites.includes("sk")) rows = [...(await frontRows()), ...rows];
   }
-  const hero = {
-    title: "Maratón",
-    text: `Series, anime y películas en ${({ lat: "latino", esp: "castellano", sub: "versión subtitulada" })[preferredLang()]}. Cambia el idioma, los sitios y el servidor en Ajustes ▸ Maratón.`,
-  };
-  kino.log(`section ${chosen}: ${rows.length} rows`);
-  return { tabs: TABS, tab: chosen, hero, rows };
+  const hero = heroOf(rows);
+  kino.log(`section ${chosen}: ${rows.length} rows, hero ${hero ? "with image" : "none"}`);
+  return hero ? { tabs: TABS, tab: chosen, hero, rows } : { tabs: TABS, tab: chosen, rows };
 }
 
 export async function browse(ref, cursor) {
