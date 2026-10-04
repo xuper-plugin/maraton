@@ -1,14 +1,29 @@
 {
   "id": "series-web",
   "name": "Series web",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "apiVersion": 7,
   "entry": "plugin.js",
   "description": "Series y anime de sitios web en español. Abre la página del episodio en un navegador oculto para encontrar el video.",
   "author": "kinotvapp",
-  "hosts": ["serieskao.top", "sololatino.net"],
-  "capabilities": ["search", "home", "browse", "episodes", "resolve"],
-  "categories": ["series", "anime"],
+  "hosts": [
+    "serieskao.top",
+    "sololatino.net",
+    "morencius.com",
+    "hglink.to",
+    "voe.sx"
+  ],
+  "capabilities": [
+    "search",
+    "home",
+    "browse",
+    "episodes",
+    "resolve"
+  ],
+  "categories": [
+    "series",
+    "anime"
+  ],
   "browser": true,
   "streamHosts": "any",
   "discoverable": false,

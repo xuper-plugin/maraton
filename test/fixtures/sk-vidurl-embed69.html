@@ -1,0 +1,1883 @@
+<!DOCTYPE html>
+<html lang="es" itemscope itemtype="https://schema.org/VideoObject">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Dark 1X01 | EMBED69</title>
+    <script>
+    (function(){
+        try {
+            if (window.self === window.top) {
+                document.documentElement.innerHTML = '';
+                window.stop();
+            }
+        } catch(e) {}
+        document.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+        document.addEventListener('keydown', function(e){
+            if(e.key==='F12'||(e.ctrlKey&&e.shiftKey&&(e.key==='I'||e.key==='J'||e.key==='C'))||(e.ctrlKey&&e.key==='u')||(e.ctrlKey&&e.key==='U')){
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }
+        });
+    })();
+    </script>
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="description" content="A missing child causes four families to help each other for answers. What they could not imagine is that this mystery would be connected to innumerable other secrets of the small town.">
+    <meta itemprop="name" content="Dark 1X01">
+    <meta itemprop="description" content="A missing child causes four families to help each other for answers. What they could not imagine is that this mystery would be connected to innumerable other secrets of the small town.">
+        <meta itemprop="thumbnailUrl" content="https://image.tmdb.org/t/p/original/3jDXL4Xvj3AzDOF6UH1xeyHW8MH.jpg">
+    <meta itemprop="image" content="https://image.tmdb.org/t/p/original/3jDXL4Xvj3AzDOF6UH1xeyHW8MH.jpg">
+        <meta property="og:type" content="video.other">
+    <meta property="og:title" content="Dark 1X01">
+    <meta property="og:description" content="A missing child causes four families to help each other for answers. What they could not imagine is that this mystery would be connected to innumerable other secrets of the small town.">
+        <meta property="og:image" content="https://image.tmdb.org/t/p/original/3jDXL4Xvj3AzDOF6UH1xeyHW8MH.jpg">
+    <meta property="og:image:width" content="1280">
+    <meta property="og:image:height" content="720">
+        <meta name="twitter:card" content="player">
+    <meta name="twitter:title" content="Dark 1X01">
+        <meta name="twitter:image" content="https://image.tmdb.org/t/p/original/3jDXL4Xvj3AzDOF6UH1xeyHW8MH.jpg">
+            <link rel="preload" as="image" href="https://image.tmdb.org/t/p/original/3jDXL4Xvj3AzDOF6UH1xeyHW8MH.jpg" imagesrcset="https://image.tmdb.org/t/p/original/3jDXL4Xvj3AzDOF6UH1xeyHW8MH.jpg" imagesizes="100vw">
+        <link rel="stylesheet" href="https://embed69.org/all.min.css">
+    <link href="https://fonts.googleapis.com/css?family=Roboto+Condensed:300,400,700" rel="stylesheet">
+    <link rel="stylesheet" href="https://embed69.org/styles-player-oxserver.css">
+    <script src="https://embed69.org/player-oxserver.js"></script>
+    <style>
+    body {
+        margin: 0;
+        padding: 0;
+        font-family: 'Roboto Condensed', sans-serif;
+        background-color: #0a0a0a;
+        overflow: hidden;
+    }
+
+    #DisplayContent {
+        position: relative;
+        height: 100vh;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    #PlayerDisplay {
+        position: relative;
+        height: 100%;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+    }
+
+    /* Fake Player Styles */
+    .fake-player-container {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 40px;
+        overflow: hidden;
+    }
+
+    .fake-player-container::before {
+        content: '';
+        position: absolute;
+        top: -10px;
+        left: -10px;
+        right: -10px;
+        bottom: -10px;
+                background-image: url('https://image.tmdb.org/t/p/original/3jDXL4Xvj3AzDOF6UH1xeyHW8MH.jpg');
+                background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+        animation: slowZoom 25s ease-in-out infinite alternate;
+        z-index: 0;
+    }
+
+    .fake-player-container::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(to top, rgba(0, 0, 0, 0.85) 0%, rgba(16, 16, 23, 0.4) 50%, rgba(0, 0, 0, 0.6) 100%);
+        z-index: 1;
+    }
+
+    .fake-player-container > * {
+        position: relative;
+        z-index: 2;
+    }
+
+    @keyframes slowZoom {
+        0% { transform: scale(1); }
+        100% { transform: scale(1.08); }
+    }
+
+    .play-button-overlay {
+        cursor: pointer;
+        transition: all 0.3s ease;
+        position: relative;
+        border: none;
+        background: transparent;
+        order: 1;
+    }
+
+    .play-button-overlay:hover {
+        transform: scale(1.1);
+    }
+
+    .play-button-overlay:focus {
+        outline: 3px solid rgba(28, 173, 221, 0.8);
+        outline-offset: 5px;
+    }
+
+    .play-button-circle {
+        width: 100px;
+        height: 100px;
+        background: rgba(28, 173, 221, 0.9);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 0 30px rgba(28, 173, 221, 0.5);
+        position: relative;
+    }
+
+    .play-button-circle::after {
+        content: '';
+        position: absolute;
+        width: 120px;
+        height: 120px;
+        border: 2px solid rgba(28, 173, 221, 0.3);
+        border-radius: 50%;
+        animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+        0% { transform: scale(1); opacity: 1; }
+        100% { transform: scale(1.3); opacity: 0; }
+    }
+
+    .play-button-circle i {
+        font-size: 40px;
+        color: white;
+        margin-left: 5px;
+    }
+
+    .video-title-overlay {
+        position: relative;
+        color: white;
+        text-align: center;
+        text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.9), 0 0 20px rgba(0, 0, 0, 0.7);
+        max-width: 80%;
+        background: rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        padding: 20px 30px 10px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        order: 2;
+    }
+
+    .video-title-overlay h1 {
+        font-size: 1.8rem;
+        margin: 0 0 10px 0;
+        font-weight: 600;
+        line-height: 1.4;
+    }
+
+    .video-title-overlay .watching-label {
+        font-size: 0.65em;
+        font-weight: 400;
+        opacity: 0.85;
+        display: block;
+        margin-bottom: 5px;
+        letter-spacing: 0.5px;
+    }
+
+    .video-title-overlay .video-name {
+        font-size: 1em;
+        font-weight: 700;
+        display: block;
+        text-transform: capitalize;
+    }
+
+    .video-title-overlay p {
+        font-size: 1rem;
+        margin: 0;
+        opacity: 0.9;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    .video-title-overlay .language-flags {
+        display: inline-flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .video-title-overlay .language-flag-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+    }
+
+    .video-title-overlay .language-flags img {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+    }
+
+    .video-title-overlay .language-name {
+        font-size: 0.9em;
+        font-weight: 600;
+    }
+
+    .video-title-overlay .separator { opacity: 0.7; }
+
+    .video-title-overlay .online-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-weight: 600;
+        color: #4ade80;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+
+    .video-title-overlay .online-badge::before {
+        content: '';
+        width: 8px;
+        height: 8px;
+        background: #4ade80;
+        border-radius: 50%;
+        animation: blink 2s infinite;
+        box-shadow: 0 0 10px #4ade80;
+    }
+
+    @keyframes blink {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.3; transform: scale(0.8); }
+    }
+
+    .video-title-overlay .server-count {
+        font-weight: 600;
+        color: #38bdf8;
+    }
+
+    /* ===== V4 Floating Selectors (Glass Morphism) ===== */
+    .floating-selectors {
+        position: absolute;
+        top: 1.5rem;
+        left: 1.5rem;
+        z-index: 9999;
+        display: flex;
+        gap: 10px;
+    }
+
+    .selector-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 0.75rem 1rem;
+        border-radius: 0.5rem;
+        background-color: rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        cursor: pointer;
+        transition: all 0.2s;
+        color: rgba(255, 255, 255, 0.9);
+        font-family: 'Roboto Condensed', sans-serif;
+        font-size: 14px;
+        font-weight: 500;
+    }
+
+    .selector-btn:hover {
+        background-color: rgba(0, 0, 0, 0.55);
+        border-color: rgba(28, 173, 221, 0.5);
+    }
+
+    .selector-btn i {
+        font-size: 1rem;
+    }
+
+    .selector-btn img {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        object-fit: cover;
+    }
+
+    /* Dropdown panels */
+    .selector-dropdown {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        margin-top: 0.5rem;
+        min-width: 200px;
+        max-height: 300px;
+        overflow-y: auto;
+        background-color: rgba(0, 0, 0, 0.75);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border-radius: 0.5rem;
+        border: 2px solid rgba(28, 173, 221, 0.6);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        z-index: 99999;
+        display: none;
+    }
+
+    .selector-dropdown.open {
+        display: block;
+        animation: dropIn 0.2s ease-out;
+    }
+
+    @keyframes dropIn {
+        from { opacity: 0; transform: translateY(-8px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .selector-dropdown::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    .selector-dropdown::-webkit-scrollbar-thumb {
+        background: rgba(28, 173, 221, 0.5);
+        border-radius: 3px;
+    }
+
+    .dropdown-option {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        padding: 0.75rem 1rem;
+        border: none;
+        background: transparent;
+        color: rgba(255, 255, 255, 0.9);
+        cursor: pointer;
+        transition: background-color 0.2s;
+        text-align: left;
+        font-family: 'Roboto Condensed', sans-serif;
+        font-size: 14px;
+        gap: 10px;
+    }
+
+    .dropdown-option:first-child {
+        border-top-left-radius: 0.5rem;
+        border-top-right-radius: 0.5rem;
+    }
+
+    .dropdown-option:last-child {
+        border-bottom-left-radius: 0.5rem;
+        border-bottom-right-radius: 0.5rem;
+    }
+
+    .dropdown-option:hover {
+        background-color: rgba(28, 173, 221, 0.15);
+    }
+
+    .dropdown-option.active {
+        background-color: rgba(28, 173, 221, 0.25);
+        border-left: 3px solid rgba(28, 173, 221, 0.8);
+    }
+
+    .dropdown-option img {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        object-fit: cover;
+    }
+
+    .dropdown-option .server-icon {
+        width: 18px;
+        height: 18px;
+        border-radius: 3px;
+    }
+
+    /* iframe container */
+    .iframe-container {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        display: none;
+    }
+
+    .iframe-container.active {
+        display: block;
+    }
+
+    #iframePlayer {
+        width: 100%;
+        height: 100%;
+        border: none;
+    }
+
+    /* Background wallpaper for player mode */
+    .player-bg {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+                background: linear-gradient(rgba(16, 16, 23, 0.71), #000000), url('https://image.tmdb.org/t/p/original/3jDXL4Xvj3AzDOF6UH1xeyHW8MH.jpg');
+                background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+        z-index: -1;
+    }
+
+    /* Decryption Loader */
+    .decryption-loader {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.95);
+        display: none;
+        justify-content: center;
+        align-items: center;
+        z-index: 99999;
+        flex-direction: column;
+    }
+
+    .decryption-loader.active { display: flex; }
+
+    .loader-content {
+        text-align: center;
+        color: white;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 20px;
+    }
+
+    .spinner {
+        border: 5px solid rgba(255, 255, 255, 0.2);
+        border-top: 5px solid #1caddd;
+        border-radius: 50%;
+        width: 60px;
+        height: 60px;
+        animation: spin 0.8s linear infinite;
+    }
+
+    .loader-text {
+        font-size: 18px;
+        font-weight: 500;
+        color: #ffffff;
+        text-align: center;
+        max-width: 300px;
+        line-height: 1.5;
+    }
+
+    .loader-subtext {
+        font-size: 14px;
+        color: rgba(255, 255, 255, 0.7);
+        margin-top: -10px;
+    }
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    /* ===== Download Panel ===== */
+    .download-panel {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 9998;
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        box-sizing: border-box;
+        overflow: hidden;
+    }
+
+    .download-panel::before {
+        content: '';
+        position: absolute;
+        top: -10px;
+        left: -10px;
+        right: -10px;
+        bottom: -10px;
+                background-image: url('https://image.tmdb.org/t/p/original/3jDXL4Xvj3AzDOF6UH1xeyHW8MH.jpg');
+                background-size: cover;
+        background-position: center;
+        filter: blur(12px) brightness(0.3);
+        z-index: 0;
+    }
+
+    .download-panel::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.6);
+        z-index: 1;
+    }
+
+    .download-panel > * {
+        position: relative;
+        z-index: 2;
+    }
+
+    .download-panel.active {
+        display: flex;
+    }
+
+    .download-panel-header {
+        text-align: center;
+        margin-bottom: 24px;
+    }
+
+    .download-panel-header h2 {
+        color: white;
+        font-size: 1.4rem;
+        margin: 0 0 6px 0;
+        font-weight: 600;
+    }
+
+    .download-panel-header p {
+        color: rgba(255, 255, 255, 0.6);
+        font-size: 13px;
+        margin: 0;
+    }
+
+    .download-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 12px;
+        width: 100%;
+        max-width: 600px;
+        max-height: 50vh;
+        overflow-y: auto;
+    }
+
+    .download-grid::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    .download-grid::-webkit-scrollbar-thumb {
+        background: rgba(28, 173, 221, 0.4);
+        border-radius: 3px;
+    }
+
+    .download-card {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+        padding: 14px 16px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .download-card:hover {
+        background: rgba(28, 173, 221, 0.1);
+        border-color: rgba(28, 173, 221, 0.4);
+        transform: translateY(-2px);
+    }
+
+    .download-card img {
+        width: 28px;
+        height: 28px;
+        border-radius: 6px;
+    }
+
+    .download-card-info {
+        flex: 1;
+    }
+
+    .download-card-name {
+        color: white;
+        font-size: 14px;
+        font-weight: 600;
+    }
+
+    .download-card-status {
+        color: #4ade80;
+        font-size: 11px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .download-card-status::before {
+        content: '';
+        width: 6px;
+        height: 6px;
+        background: #4ade80;
+        border-radius: 50%;
+    }
+
+    .download-card .fa-download {
+        color: rgba(255, 255, 255, 0.4);
+        font-size: 14px;
+    }
+
+    .download-panel-close {
+        margin-top: 20px;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        color: white;
+        padding: 10px 24px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-family: 'Roboto Condensed', sans-serif;
+        font-size: 14px;
+        transition: all 0.2s;
+    }
+
+    .download-panel-close:hover {
+        background: rgba(255, 255, 255, 0.15);
+    }
+
+    /* Download countdown modal */
+    .download-countdown {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(0, 0, 0, 0.95);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 2px solid rgba(28, 173, 221, 0.5);
+        border-radius: 16px;
+        padding: 30px;
+        text-align: center;
+        color: white;
+        z-index: 100000;
+        display: none;
+        min-width: 280px;
+    }
+
+    .download-countdown.active {
+        display: block;
+    }
+
+    .download-countdown-circle {
+        width: 80px;
+        height: 80px;
+        margin: 0 auto 16px;
+        position: relative;
+    }
+
+    .download-countdown-number {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: #1caddd;
+    }
+
+    .download-countdown-text {
+        font-size: 14px;
+        opacity: 0.8;
+        margin-bottom: 8px;
+    }
+
+    .download-countdown-server {
+        font-size: 16px;
+        font-weight: 600;
+        color: #1caddd;
+        margin-bottom: 16px;
+    }
+
+    .download-go-btn {
+        display: none;
+        width: auto;
+        padding: 8px 20px;
+        background: #1caddd;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-family: 'Roboto Condensed', sans-serif;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+        gap: 6px;
+        align-items: center;
+        justify-content: center;
+        text-decoration: none;
+        margin-top: 4px;
+    }
+
+    .download-go-btn.visible {
+        display: inline-flex;
+    }
+
+    .download-go-btn:hover {
+        background: #15a0cf;
+        transform: scale(1.02);
+    }
+
+    @media (max-width: 768px) {
+        .download-grid {
+            grid-template-columns: 1fr;
+            max-width: 100%;
+        }
+
+        .download-panel-header h2 {
+            font-size: 1.2rem;
+        }
+    }
+
+    /* ===== Server Warning Toast ===== */
+    .server-toast {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%) translateY(100px);
+        background: rgba(0, 0, 0, 0.85);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(251, 191, 36, 0.5);
+        border-radius: 10px;
+        padding: 12px 18px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        color: white;
+        font-size: 13px;
+        max-width: 420px;
+        width: calc(100% - 40px);
+        z-index: 99998;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        opacity: 0;
+        transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        pointer-events: none;
+    }
+
+    .server-toast.visible {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+        pointer-events: auto;
+    }
+
+    .server-toast-icon {
+        font-size: 20px;
+        flex-shrink: 0;
+    }
+
+    .server-toast-content {
+        flex: 1;
+        line-height: 1.4;
+    }
+
+    .server-toast-content strong {
+        color: #fbbf24;
+    }
+
+    .server-toast-close {
+        background: rgba(255, 255, 255, 0.1);
+        border: none;
+        color: rgba(255, 255, 255, 0.7);
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        flex-shrink: 0;
+        transition: all 0.2s;
+    }
+
+    .server-toast-close:hover {
+        background: rgba(255, 255, 255, 0.2);
+        color: white;
+    }
+
+    .server-toast-progress {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        height: 3px;
+        background: linear-gradient(90deg, #fbbf24, #f59e0b);
+        border-radius: 0 0 10px 10px;
+        transition: width linear;
+    }
+
+    @media (max-width: 768px) {
+        .server-toast {
+            bottom: 10px;
+            font-size: 12px;
+            padding: 10px 14px;
+            max-width: 340px;
+        }
+    }
+
+    /* ===== Tutorial Overlay ===== */
+    .tutorial-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 10000;
+        pointer-events: none;
+    }
+
+    .tutorial-overlay.active {
+        pointer-events: auto;
+    }
+
+    .tutorial-backdrop {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.6);
+        opacity: 0;
+        transition: opacity 0.3s;
+    }
+
+    .tutorial-overlay.active .tutorial-backdrop {
+        opacity: 1;
+    }
+
+    .tutorial-tooltip {
+        position: absolute;
+        top: 4.5rem;
+        left: 1.5rem;
+        background: rgba(0, 0, 0, 0.85);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border: 2px solid rgba(28, 173, 221, 0.7);
+        border-radius: 12px;
+        padding: 16px 20px;
+        color: white;
+        max-width: 280px;
+        opacity: 0;
+        transform: translateY(10px);
+        transition: all 0.4s ease;
+        box-shadow: 0 8px 32px rgba(28, 173, 221, 0.2);
+    }
+
+    .tutorial-overlay.active .tutorial-tooltip {
+        opacity: 1;
+        transform: translateY(0);
+    }
+
+    .tutorial-arrow {
+        position: absolute;
+        top: -10px;
+        left: 30px;
+        width: 0;
+        height: 0;
+        border-left: 10px solid transparent;
+        border-right: 10px solid transparent;
+        border-bottom: 10px solid rgba(28, 173, 221, 0.7);
+    }
+
+    .tutorial-arrow::after {
+        content: '';
+        position: absolute;
+        top: 2px;
+        left: -8px;
+        width: 0;
+        height: 0;
+        border-left: 8px solid transparent;
+        border-right: 8px solid transparent;
+        border-bottom: 8px solid rgba(0, 0, 0, 0.85);
+    }
+
+    .tutorial-step-indicator {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 10px;
+    }
+
+    .tutorial-step-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.3);
+        transition: all 0.3s;
+    }
+
+    .tutorial-step-dot.active {
+        background: #1caddd;
+        box-shadow: 0 0 8px rgba(28, 173, 221, 0.6);
+    }
+
+    .tutorial-title {
+        font-size: 15px;
+        font-weight: 700;
+        margin-bottom: 6px;
+        color: #1caddd;
+    }
+
+    .tutorial-text {
+        font-size: 13px;
+        line-height: 1.5;
+        opacity: 0.9;
+        margin-bottom: 14px;
+    }
+
+    .tutorial-actions {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .tutorial-btn {
+        padding: 6px 16px;
+        border-radius: 6px;
+        border: none;
+        cursor: pointer;
+        font-family: 'Roboto Condensed', sans-serif;
+        font-size: 13px;
+        font-weight: 500;
+        transition: all 0.2s;
+    }
+
+    .tutorial-btn-skip {
+        background: transparent;
+        color: rgba(255, 255, 255, 0.6);
+        padding: 6px 10px;
+    }
+
+    .tutorial-btn-skip:hover {
+        color: white;
+    }
+
+    .tutorial-btn-next {
+        background: #1caddd;
+        color: white;
+    }
+
+    .tutorial-btn-next:hover {
+        background: #15a0cf;
+        transform: scale(1.03);
+    }
+
+    .tutorial-highlight {
+        position: relative;
+        z-index: 10001;
+        animation: tutorialPulse 1.5s infinite;
+    }
+
+    @keyframes tutorialPulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(28, 173, 221, 0.4); }
+        50% { box-shadow: 0 0 0 8px rgba(28, 173, 221, 0); }
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+        .floating-selectors {
+            top: 0.75rem;
+            left: 0.75rem;
+            gap: 6px;
+        }
+
+        .tutorial-tooltip {
+            top: 4rem;
+            left: 0.75rem;
+            max-width: 240px;
+            padding: 12px 14px;
+        }
+
+        .tutorial-title { font-size: 13px; }
+        .tutorial-text { font-size: 12px; }
+
+        .selector-btn {
+            padding: 0.5rem 0.75rem;
+            font-size: 12px;
+        }
+
+        .selector-btn img {
+            width: 16px;
+            height: 16px;
+        }
+
+        .selector-dropdown {
+            min-width: 170px;
+        }
+
+        .dropdown-option {
+            padding: 0.6rem 0.75rem;
+            font-size: 13px;
+        }
+
+        .fake-player-container { gap: 30px; }
+
+        .play-button-circle {
+            width: 80px;
+            height: 80px;
+        }
+
+        .play-button-circle i { font-size: 32px; }
+
+        .video-title-overlay {
+            max-width: 90%;
+            padding: 15px 20px 8px;
+        }
+
+        .video-title-overlay h1 { font-size: 1.3rem; }
+        .video-title-overlay .watching-label { font-size: 0.6em; }
+        .video-title-overlay .video-name { font-size: 0.95em; }
+        .video-title-overlay p { font-size: 0.85rem; }
+
+        .video-title-overlay .language-flags img {
+            width: 16px;
+            height: 16px;
+        }
+
+        .video-title-overlay .language-name { font-size: 0.8em; }
+        .video-title-overlay .language-flags { gap: 6px; }
+    }
+    </style>
+    </head>
+<body>
+
+    <div class="decryption-loader" id="decryptionLoader">
+        <div class="loader-content">
+            <div class="spinner"></div>
+            <div class="loader-text">Obteniendo Enlaces por favor Espera un segundo</div>
+            <div class="loader-subtext" id="decryptionProgress">Descifrando servidores disponibles...</div>
+        </div>
+    </div>
+
+    <div id="modal" class="modal-vast" style="display: none;">
+        <div class="modal-content-vast">
+            <video id="videoPlayer" playsinline controlsList="nodownload noplaybackrate" style="width: 100%; height: auto;">
+                <source src="" type="video/mp4">
+                Your browser does not support the video tag.
+            </video>
+            <button id="skipCountdown" class="skip-button" style="display: none;">Saltar</button>
+        </div>
+    </div>
+
+    <div class="server-toast" id="serverToast">
+        <span class="server-toast-icon" id="serverToastIcon">⚠️</span>
+        <div class="server-toast-content" id="serverToastContent"></div>
+        <button class="server-toast-close" id="serverToastClose" aria-label="Cerrar">×</button>
+        <div class="server-toast-progress" id="serverToastProgress"></div>
+    </div>
+
+    <div id="DisplayContent">
+        <div id="PlayerDisplay">
+            <div class="player-bg" id="playerBg" style="display:none;"></div>
+
+            <article class="fake-player-container" id="fakePlayer" itemscope itemtype="https://schema.org/VideoObject">
+                <meta itemprop="name" content="Dark 1X01">
+                <meta itemprop="description" content="A missing child causes four families to help each other for answers. What they could not imagine is that this mystery would be connected to innumerable other secrets of the small town.">
+                                <meta itemprop="identifier" content="tt5753856">
+                                                <meta itemprop="thumbnailUrl" content="https://image.tmdb.org/t/p/original/3jDXL4Xvj3AzDOF6UH1xeyHW8MH.jpg">
+                <link itemprop="contentUrl" href="/f/tt5753856-1x01/">
+                                <meta itemprop="uploadDate" content="2026-10-04T13:16:54+08:00">
+
+                <div class="video-title-overlay">
+                    <h1 itemprop="name">
+                        <span class="watching-label">Estás viendo:</span>
+                        <span class="video-name">Dark 1X01</span>
+                    </h1>
+                    <p itemprop="description">
+                        <span class="language-flags">
+                                                        <img src="https://embed69.org/static/lang/LAT.png" 
+                                 alt="LAT" 
+                                 title="LAT">
+                                                    </span>
+                        •
+                        <span class="online-badge">Online</span>
+                        •
+                        <span class="server-count" id="serverCountDisplay">
+                            3 Servidores
+                        </span>
+                    </p>
+                </div>
+
+                <button 
+                    class="play-button-overlay" 
+                    onclick="showPlayerInterface()" 
+                    aria-label="Play video - Dark 1X01"
+                    role="button"
+                    tabindex="0"
+                    onkeypress="if(event.key==='Enter'||event.key===' ')showPlayerInterface()">
+                    <div class="play-button-circle" aria-hidden="true">
+                        <i class="fa-solid fa-play"></i>
+                    </div>
+                </button>
+            </article>
+
+            <div class="floating-selectors" id="floatingSelectors" style="display:none;">
+                <div style="position:relative;" id="langSelectorWrap">
+                    <button class="selector-btn" id="langSelectorBtn" aria-label="Seleccionar idioma">
+                        <img id="langBtnFlag" src="https://embed69.org/static/lang/LAT.png" alt="lang">
+                        <span id="langBtnText">LAT</span>
+                        <i class="fas fa-chevron-down" style="font-size:10px;opacity:0.7;"></i>
+                    </button>
+                    <div class="selector-dropdown" id="langDropdown"></div>
+                </div>
+
+                <div style="position:relative;" id="serverSelectorWrap">
+                    <button class="selector-btn" id="serverSelectorBtn" aria-label="Seleccionar servidor">
+                        <i class="fas fa-server"></i>
+                        <span id="serverBtnText">Servidor</span>
+                        <i class="fas fa-chevron-down" style="font-size:10px;opacity:0.7;"></i>
+                    </button>
+                    <div class="selector-dropdown" id="serverDropdown"></div>
+                </div>
+            </div>
+
+            <div class="tutorial-overlay" id="tutorialOverlay">
+                <div class="tutorial-backdrop" id="tutorialBackdrop"></div>
+                <div class="tutorial-tooltip" id="tutorialTooltip">
+                    <div class="tutorial-arrow"></div>
+                    <div class="tutorial-step-indicator" id="tutorialDots"></div>
+                    <div class="tutorial-title" id="tutorialTitle"></div>
+                    <div class="tutorial-text" id="tutorialText"></div>
+                    <div class="tutorial-actions">
+                        <button class="tutorial-btn tutorial-btn-skip" id="tutorialSkip">Omitir</button>
+                        <button class="tutorial-btn tutorial-btn-next" id="tutorialNext">Siguiente</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="download-panel" id="downloadPanel">
+                <div class="download-panel-header">
+                    <h2><i class="fas fa-download"></i> Descargar</h2>
+                    <p>Selecciona un servidor para descargar</p>
+                </div>
+                <div class="download-grid" id="downloadGrid"></div>
+                <button class="download-panel-close" id="downloadPanelClose">
+                    <i class="fas fa-arrow-left"></i> Volver al reproductor
+                </button>
+            </div>
+
+            <div class="download-countdown" id="downloadCountdown">
+                <div class="download-countdown-circle">
+                    <svg viewBox="0 0 100 100" width="80" height="80">
+                        <circle cx="50" cy="50" r="45" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="6"/>
+                        <circle id="downloadProgressCircle" cx="50" cy="50" r="45" fill="none" stroke="#1caddd" stroke-width="6" stroke-dasharray="283" stroke-dashoffset="283" stroke-linecap="round" transform="rotate(-90 50 50)"/>
+                    </svg>
+                    <div class="download-countdown-number" id="downloadCountdownNum">5</div>
+                </div>
+                <div class="download-countdown-text" id="downloadCountdownText">Preparando descarga...</div>
+                <div class="download-countdown-server" id="downloadCountdownServer"></div>
+                <a class="download-go-btn" id="downloadGoBtn" target="_blank" rel="noopener noreferrer">
+                    <i class="fas fa-download"></i> Descargar ahora
+                </a>
+            </div>
+
+            <section class="iframe-container" id="iframeContainer" role="region" aria-label="Video player">
+                <iframe 
+                    id="iframePlayer" 
+                    frameborder="0" 
+                    allowfullscreen 
+                    title="Video player iframe"
+                    loading="lazy"></iframe>
+            </section>
+        </div>
+    </div>
+
+    <script>
+    const POW_CHALLENGE = 'dcb961db6bad134c2a8f58af1dcbab06';
+    const POW_DIFFICULTY = 3;
+    const POW_SALT = '6d07665b9850a0db';
+
+    (function(){
+        let suspect = 0;
+        if(navigator.webdriver) suspect += 3;
+        if(!window.chrome && /Chrome/.test(navigator.userAgent)) suspect += 2;
+        if(navigator.plugins.length === 0 && !/Mobile/.test(navigator.userAgent)) suspect += 1;
+        if(navigator.languages.length === 0) suspect += 2;
+        if(window.outerWidth === 0 && window.outerHeight === 0) suspect += 2;
+        if(suspect >= 4) {
+            document.documentElement.innerHTML = '<body style="background:#000;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;">Access denied</body>';
+            throw new Error('blocked');
+        }
+    })();
+
+    function showDecryptionLoader() {
+        const loader = document.getElementById('decryptionLoader');
+        if (loader) loader.style.display = 'flex';
+    }
+
+    function hideDecryptionLoader() {
+        const loader = document.getElementById('decryptionLoader');
+        if (loader) loader.style.display = 'none';
+    }
+
+    function updateDecryptionProgress(current, total) {
+        const progressText = document.getElementById('decryptionProgress');
+        if (progressText) {
+            progressText.textContent = `Descifrando enlaces... ${current}/${total}`;
+        }
+    }
+
+    let dataLink = [{"file_id":75581,"video_language":"LAT","sortedEmbeds":[{"servername":"vidhide","link":"LfnuvoUaYGCiHTevH9YSDJVN76HorAE54LNCuL8Dh7aEHUa3u3pgo\/v+DUa3CQ4Yg5IZp6sY7\/y4qUaUaMwynA==","type":"video"},{"servername":"streamwish","link":"MCh0QzV0Vc4aWoMiy849R0UqoJeZWF8eI\/q7yvmzJ+9agIrKDWppDfAfLP3zU0DhPQBJqcsJL0teg04COqFQig==","type":"video"},{"servername":"voe","link":"XgwdSbNDf0ueMjZYBcBLuKQ18ru9Dv\/JFec8feQKJSMj+mBqChYD8TcNeFwd3rLw","type":"video"}],"downloadEmbeds":[{"servername":"voe","link":"6v\/W3YoTCK8r\/GmudqTWSI8oyytDc3PXPfbTB0DnFMWBmI31aHyDITAfK6Nt1T\/pHHXFa0SzNfvRfgClevl0jg==","type":"download"},{"servername":"streamwish","link":"T37FiwrecrxrX1dzWhapDItAg+7X1SZ231OpHD3cC\/cXZpoOHm51uzRjm7KBGAISQgEQy+7mzXrNWDsga+\/KaA==","type":"download"},{"servername":"vidhide","link":"AwFFjj9Hk\/FFD0fj0GfdPBo2J55\/9LBrOERRaUucwiPFg\/jz9NeoP6YY5s7qxlxbMW1SaoCzC5guXPtlJIgRiQ==","type":"download"},{"servername":"rapidvideo","link":"4bLN1E7N9yEiYqrn4TQoBv1e1f27J9R4giMHMCWSwFnM0SmDCwyQahpqONJrYcMokvfoCadL9H3a4RE4JRRnmw==","type":"download"}]}];
+    let currentLanguageServers = [];
+    let currentLangIndex = 0;
+    let powSolved = false;
+    let aesKeyBytes = null;
+
+    const powWorkerCode = `
+        self.onmessage = async function(ev) {
+            const { challenge, difficulty, salt } = ev.data;
+            const prefix = '0'.repeat(difficulty);
+            let nonce = 0;
+            
+            async function sha256(str) {
+                const buf = new TextEncoder().encode(str);
+                const hash = await crypto.subtle.digest('SHA-256', buf);
+                return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2,'0')).join('');
+            }
+            
+            const batchSize = 5000;
+            while(true) {
+                for(let i = 0; i < batchSize; i++) {
+                    const hash = await sha256(challenge + nonce);
+                    if(hash.startsWith(prefix)) {
+                        const keyHash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(challenge + nonce + salt));
+                        self.postMessage({ done: true, nonce: nonce, aesKey: new Uint8Array(keyHash) });
+                        return;
+                    }
+                    nonce++;
+                }
+                self.postMessage({ progress: true, nonce: nonce });
+            }
+        };
+    `;
+
+    async function decryptAES(encryptedBase64, aesKey) {
+        try {
+            const raw = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
+            const iv = raw.slice(0, 16);
+            const ciphertext = raw.slice(16);
+            const key = await crypto.subtle.importKey('raw', aesKey.slice(0, 32), { name: 'AES-CBC' }, false, ['decrypt']);
+            const decrypted = await crypto.subtle.decrypt({ name: 'AES-CBC', iv: iv }, key, ciphertext);
+            return new TextDecoder().decode(decrypted);
+        } catch(e) {
+            return null;
+        }
+    }
+
+    async function solvePoWAndDecrypt() {
+        showDecryptionLoader();
+        updateDecryptionProgress(0, 1);
+
+        return new Promise((resolve) => {
+            const wBlob = new Blob([powWorkerCode], { type: 'application/javascript' });
+            const wUrl = URL.createObjectURL(wBlob);
+            const worker = new Worker(wUrl);
+            URL.revokeObjectURL(wUrl);
+
+            worker.onmessage = async function(ev) {
+                const d = ev.data;
+                if(d.progress) {
+                } else if(d.done) {
+                    worker.terminate();
+                    aesKeyBytes = d.aesKey;
+                    powSolved = true;
+
+                    await decryptAllLinksLocal();
+                    hideDecryptionLoader();
+
+                    if (pendingFirstLoad) {
+                        pendingFirstLoad = false;
+                        showTabContent(0);
+                        if (currentLanguageServers.length > 0) {
+                            const firstServer = getServerInfo(currentLanguageServers[0]);
+                            showServerToast(firstServer.name);
+                        }
+                    }
+
+                    resolve();
+                }
+            };
+
+            worker.postMessage({
+                challenge: POW_CHALLENGE,
+                difficulty: POW_DIFFICULTY,
+                salt: POW_SALT
+            });
+        });
+    }
+
+    async function decryptAllLinksLocal() {
+        if (!Array.isArray(dataLink) || dataLink.length === 0) return;
+
+        let total = 0;
+        dataLink.forEach(file => {
+            if(file.sortedEmbeds) total += file.sortedEmbeds.length;
+            if(file.downloadEmbeds) total += file.downloadEmbeds.length;
+        });
+
+        let done = 0;
+        updateDecryptionProgress(0, total);
+
+        for(let fi = 0; fi < dataLink.length; fi++) {
+            const file = dataLink[fi];
+            if(file.sortedEmbeds) {
+                for(let ei = 0; ei < file.sortedEmbeds.length; ei++) {
+                    const embed = file.sortedEmbeds[ei];
+                    if(embed.link && typeof embed.link === 'string') {
+                        const decrypted = await decryptAES(embed.link, aesKeyBytes);
+                        if(decrypted) dataLink[fi].sortedEmbeds[ei].link = decrypted;
+                    }
+                    done++;
+                    updateDecryptionProgress(done, total);
+                }
+            }
+            if(file.downloadEmbeds) {
+                for(let ei = 0; ei < file.downloadEmbeds.length; ei++) {
+                    const embed = file.downloadEmbeds[ei];
+                    if(embed.link && typeof embed.link === 'string') {
+                        const decrypted = await decryptAES(embed.link, aesKeyBytes);
+                        if(decrypted) dataLink[fi].downloadEmbeds[ei].link = decrypted;
+                    }
+                    done++;
+                    updateDecryptionProgress(done, total);
+                }
+            }
+        }
+    }
+
+    const serverNames = {
+        'voe': 'Voe',
+        'filemoon': 'Filemoon',
+        'doodstream': 'Doodstream',
+        'streamwish': 'Streamwish',
+        'vidhide': 'Vidhide',
+        'rapidvideo': 'Rapidvideo',
+        'download': 'Download'
+    };
+
+    function getServerInfo(server) {
+        let name = server.servername === 'streamingembed' ? 'vip' : server.servername;
+        let serverLink = server.link;
+        if (typeof serverLink === 'object' && serverLink.link) {
+            serverLink = serverLink.link;
+        }
+        if (typeof serverLink === 'string') {
+            serverLink = serverLink.replace(/`/g, '').trim();
+        }
+        return {
+            link: serverLink,
+            icono: `${name}.ico`,
+            name: serverNames[name] || name.charAt(0).toUpperCase() + name.slice(1),
+            fullName: serverNames[name] || name.charAt(0).toUpperCase() + name.slice(1)
+        };
+    }
+
+    const langMap = {
+        'lat': 'LATINO',
+        'esp': 'CASTELLANO',
+        'sub': 'SUBTITULADO',
+        'vose': 'SUBTITULADO',
+        'jap': 'JAPONES SUB',
+        'kor': 'KOREA SUB'
+    };
+
+    const langMapShort = {
+        'lat': 'LAT',
+        'esp': 'ESP',
+        'sub': 'SUB',
+        'vose': 'VOSE',
+        'jap': 'JAP',
+        'kor': 'KOR'
+    };
+
+    let pendingFirstLoad = false;
+
+    function showPlayerInterface() {
+        document.getElementById('fakePlayer').style.display = 'none';
+        document.getElementById('playerBg').style.display = 'block';
+        document.getElementById('floatingSelectors').style.display = 'flex';
+
+        buildLanguageDropdown();
+
+        if (dataLink.length > 0 && dataLink[0].sortedEmbeds) {
+            currentLangIndex = 0;
+            currentLanguageServers = dataLink[0].sortedEmbeds;
+            buildServerDropdown();
+
+            if (powSolved) {
+                showTabContent(0);
+                const firstServer = getServerInfo(currentLanguageServers[0]);
+                showServerToast(firstServer.name);
+            } else {
+                pendingFirstLoad = true;
+            }
+        }
+
+        setTimeout(() => startTutorial(), 800);
+    }
+
+    function buildLanguageDropdown() {
+        const dropdown = document.getElementById('langDropdown');
+        dropdown.innerHTML = '';
+
+        dataLink.forEach((file, index) => {
+            const option = document.createElement('button');
+            option.className = `dropdown-option ${index === 0 ? 'active' : ''}`;
+            option.dataset.index = index;
+
+            const flag = document.createElement('img');
+            flag.src = `https://embed69.org/static/lang/${file.video_language}.png`;
+            flag.alt = file.video_language;
+            option.appendChild(flag);
+
+            const text = document.createElement('span');
+            text.textContent = langMap[(file.video_language || '').toLowerCase()] || file.video_language.toUpperCase();
+            option.appendChild(text);
+
+            option.onclick = () => changeLanguage(index);
+            dropdown.appendChild(option);
+        });
+    }
+
+    function buildServerDropdown() {
+        const dropdown = document.getElementById('serverDropdown');
+        dropdown.innerHTML = '';
+
+        currentLanguageServers.forEach((server, index) => {
+            const serverInfo = getServerInfo(server);
+            const option = document.createElement('button');
+            option.className = `dropdown-option ${index === 0 ? 'active' : ''}`;
+            option.dataset.index = index;
+
+            const icon = document.createElement('img');
+            icon.src = `https://embed69.org/static/server/${serverInfo.icono}`;
+            icon.alt = serverInfo.name;
+            icon.className = 'server-icon';
+            option.appendChild(icon);
+
+            const text = document.createElement('span');
+            text.textContent = serverInfo.fullName;
+            option.appendChild(text);
+
+            option.onclick = () => selectServer(index);
+            dropdown.appendChild(option);
+        });
+
+        const file = dataLink[currentLangIndex];
+        if (file && file.downloadEmbeds && file.downloadEmbeds.length > 0) {
+            const dlOption = document.createElement('button');
+            dlOption.className = 'dropdown-option';
+            dlOption.style.borderTop = '1px solid rgba(255,255,255,0.1)';
+
+            const dlIcon = document.createElement('i');
+            dlIcon.className = 'fas fa-download';
+            dlIcon.style.fontSize = '16px';
+            dlIcon.style.width = '20px';
+            dlIcon.style.textAlign = 'center';
+            dlOption.appendChild(dlIcon);
+
+            const dlText = document.createElement('span');
+            dlText.textContent = 'Descargar';
+            dlText.style.color = '#4ade80';
+            dlOption.appendChild(dlText);
+
+            dlOption.onclick = () => {
+                document.getElementById('serverDropdown').classList.remove('open');
+                showDownloadPanel();
+            };
+            dropdown.appendChild(dlOption);
+        }
+
+        if (currentLanguageServers.length > 0) {
+            const first = getServerInfo(currentLanguageServers[0]);
+            document.getElementById('serverBtnText').textContent = first.fullName;
+        }
+    }
+
+    function changeLanguage(index) {
+        currentLangIndex = index;
+        const file = dataLink[index];
+
+        document.getElementById('langBtnFlag').src = `https://embed69.org/static/lang/${file.video_language}.png`;
+        document.getElementById('langBtnText').textContent = langMapShort[(file.video_language || '').toLowerCase()] || file.video_language.toUpperCase();
+
+        document.querySelectorAll('#langDropdown .dropdown-option').forEach((opt, i) => {
+            opt.classList.toggle('active', i === index);
+        });
+
+        document.getElementById('langDropdown').classList.remove('open');
+
+        if (file.sortedEmbeds) {
+            currentLanguageServers = file.sortedEmbeds;
+            buildServerDropdown();
+            showTabContent(0);
+            const firstServer = getServerInfo(currentLanguageServers[0]);
+            showServerToast(firstServer.name);
+        }
+    }
+
+    function selectServer(index) {
+        const serverInfo = getServerInfo(currentLanguageServers[index]);
+
+        document.getElementById('serverBtnText').textContent = serverInfo.fullName;
+
+        document.querySelectorAll('#serverDropdown .dropdown-option').forEach((opt, i) => {
+            opt.classList.toggle('active', i === index);
+        });
+
+        document.getElementById('serverDropdown').classList.remove('open');
+
+        document.getElementById('downloadPanel').classList.remove('active');
+
+        showServerToast(serverInfo.name);
+
+        showTabContent(index);
+    }
+
+    function showTabContent(index) {
+        const server = currentLanguageServers[index];
+        if (!server) return;
+
+        if (!powSolved) {
+            return;
+        }
+
+        const serverInfo = getServerInfo(server);
+        const iframePlayer = document.getElementById('iframePlayer');
+        const iframeContainer = document.getElementById('iframeContainer');
+
+        iframeContainer.classList.add('active');
+        iframePlayer.src = serverInfo.link;
+        iframePlayer.style.display = 'block';
+
+            }
+
+    let currentDownloadEmbeds = [];
+
+    function showDownloadPanel() {
+        const file = dataLink[currentLangIndex];
+        if (!file || !file.downloadEmbeds || file.downloadEmbeds.length === 0) {
+            alert('No hay enlaces de descarga disponibles para este idioma.');
+            return;
+        }
+
+        currentDownloadEmbeds = file.downloadEmbeds;
+        const grid = document.getElementById('downloadGrid');
+        grid.innerHTML = '';
+
+        currentDownloadEmbeds.forEach((dl, index) => {
+            const name = dl.servername === 'streamingembed' ? 'vip' : dl.servername;
+            if (name === 'rapidvideo') return;
+            const displayName = serverNames[name] || name.charAt(0).toUpperCase() + name.slice(1);
+
+            const card = document.createElement('div');
+            card.className = 'download-card';
+            card.innerHTML = `
+                <img src="https://embed69.org/static/server/${name}.ico" alt="${displayName}">
+                <div class="download-card-info">
+                    <div class="download-card-name">${displayName}</div>
+                    <div class="download-card-status">Disponible</div>
+                </div>
+                <i class="fas fa-download"></i>
+            `;
+            card.onclick = () => startDownloadCountdown(index, displayName);
+            grid.appendChild(card);
+        });
+
+        document.getElementById('downloadPanel').classList.add('active');
+        document.getElementById('iframeContainer').classList.remove('active');
+    }
+
+    function hideDownloadPanel() {
+        document.getElementById('downloadPanel').classList.remove('active');
+        document.getElementById('iframeContainer').classList.add('active');
+    }
+
+    function startDownloadCountdown(index, serverName) {
+        const countdown = document.getElementById('downloadCountdown');
+        const numEl = document.getElementById('downloadCountdownNum');
+        const serverEl = document.getElementById('downloadCountdownServer');
+        const circle = document.getElementById('downloadProgressCircle');
+        const goBtn = document.getElementById('downloadGoBtn');
+        const textEl = document.getElementById('downloadCountdownText');
+
+        serverEl.textContent = serverName;
+        textEl.textContent = 'Preparando descarga...';
+        goBtn.classList.remove('visible');
+        countdown.classList.add('active');
+
+        let seconds = 5;
+        numEl.textContent = seconds;
+
+        circle.style.transition = 'none';
+        circle.style.strokeDashoffset = '283';
+        requestAnimationFrame(() => {
+            circle.style.transition = 'stroke-dashoffset 5s linear';
+            circle.style.strokeDashoffset = '0';
+        });
+
+        const interval = setInterval(() => {
+            seconds--;
+            numEl.textContent = seconds;
+            if (seconds <= 0) {
+                clearInterval(interval);
+                numEl.textContent = '✓';
+                textEl.textContent = 'Descarga lista';
+
+                const dl = currentDownloadEmbeds[index];
+                let link = dl.link;
+                if (typeof link === 'object' && link !== null) {
+                    link = link.link || link;
+                }
+                if (typeof link === 'string') {
+                    link = link.replace(/`/g, '').trim();
+                }
+                goBtn.href = link || '#';
+                goBtn.classList.add('visible');
+            }
+        }, 1000);
+    }
+
+    document.getElementById('downloadGoBtn').addEventListener('click', () => {
+        setTimeout(() => {
+            document.getElementById('downloadCountdown').classList.remove('active');
+        }, 300);
+    });
+
+    document.getElementById('downloadPanelClose').addEventListener('click', hideDownloadPanel);
+
+    const warnServers = {
+        'vidhide': { msg: 'Este servidor tiene ventanas emergentes y anuncios.', type: 'warning' },
+        'doodstream': { msg: 'Este servidor tiene ventanas emergentes y anuncios.', type: 'warning' },
+        'rapidvideo': { msg: 'Este servidor NO contiene anuncios, disfruta.', type: 'success' },
+        'filemoon': { msg: 'Este servidor tiene ventanas emergentes y anuncios.', type: 'warning' },
+        'streamwish': { msg: 'Este servidor tiene ventanas emergentes y anuncios.', type: 'warning' },
+        'voe': { msg: 'Este servidor tiene ventanas emergentes y anuncios.', type: 'warning' }
+    };
+
+    let toastTimer = null;
+    let toastProgressTimer = null;
+
+    function showServerToast(serverName) {
+        const normalizedName = serverName.toLowerCase();
+        if (!warnServers[normalizedName]) return;
+
+        const serverData = warnServers[normalizedName];
+        const toast = document.getElementById('serverToast');
+        const content = document.getElementById('serverToastContent');
+        const progress = document.getElementById('serverToastProgress');
+        const icon = document.getElementById('serverToastIcon');
+
+        if (toastTimer) clearTimeout(toastTimer);
+        if (toastProgressTimer) clearInterval(toastProgressTimer);
+
+        if (serverData.type === 'success') {
+            toast.style.borderColor = 'rgba(74, 222, 128, 0.5)';
+            icon.textContent = '✅';
+            content.innerHTML = `<strong style="color:#4ade80">${serverName}</strong> — ${serverData.msg}`;
+            progress.style.background = 'linear-gradient(90deg, #4ade80, #22c55e)';
+        } else {
+            toast.style.borderColor = 'rgba(251, 191, 36, 0.5)';
+            icon.textContent = '⚠️';
+            content.innerHTML = `<strong>${serverName}</strong> — ${serverData.msg}`;
+            progress.style.background = 'linear-gradient(90deg, #fbbf24, #f59e0b)';
+        }
+
+        toast.classList.add('visible');
+
+        const duration = 10000;
+        progress.style.width = '100%';
+        progress.style.transition = 'none';
+
+        requestAnimationFrame(() => {
+            progress.style.transition = `width ${duration}ms linear`;
+            progress.style.width = '0%';
+        });
+
+        toastTimer = setTimeout(() => hideServerToast(), duration);
+    }
+
+    function hideServerToast() {
+        const toast = document.getElementById('serverToast');
+        toast.classList.remove('visible');
+        if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
+        if (toastProgressTimer) { clearInterval(toastProgressTimer); toastProgressTimer = null; }
+    }
+
+    document.getElementById('serverToastClose').addEventListener('click', hideServerToast);
+
+    document.getElementById('langSelectorBtn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        const langDrop = document.getElementById('langDropdown');
+        const serverDrop = document.getElementById('serverDropdown');
+        serverDrop.classList.remove('open');
+        langDrop.classList.toggle('open');
+    });
+
+    document.getElementById('serverSelectorBtn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        const langDrop = document.getElementById('langDropdown');
+        const serverDrop = document.getElementById('serverDropdown');
+        langDrop.classList.remove('open');
+        serverDrop.classList.toggle('open');
+    });
+
+    document.addEventListener('click', () => {
+        document.getElementById('langDropdown').classList.remove('open');
+        document.getElementById('serverDropdown').classList.remove('open');
+    });
+
+    document.getElementById('langDropdown').addEventListener('click', (e) => e.stopPropagation());
+    document.getElementById('serverDropdown').addEventListener('click', (e) => e.stopPropagation());
+
+    function executePopupCode() {
+                const popupContainer = document.createElement('div');
+        popupContainer.innerHTML = "<script data-cfasync=\"false\" async type=\"text\/javascript\" src=\"\/\/cd.teniacites.com\/r2iFdOyMJj5SanM9k\/RqmQw\"><\/script>";
+        document.body.appendChild(popupContainer);
+        const scripts = popupContainer.getElementsByTagName('script');
+        for (let script of scripts) {
+            const newScript = document.createElement('script');
+            if (script.src) {
+                newScript.src = script.src;
+                newScript.async = script.async;
+                newScript.type = script.type || 'text/javascript';
+            } else {
+                newScript.textContent = script.textContent;
+            }
+            document.body.appendChild(newScript);
+        }
+            }
+
+    const tutorialSteps = [
+        {
+            target: 'langSelectorWrap',
+            title: '🌐 Cambiar Idioma',
+            text: 'Aquí puedes elegir el idioma del video: Latino, Castellano, Subtitulado y más.',
+            arrowLeft: '30px'
+        },
+        {
+            target: 'serverSelectorWrap',
+            title: '🖥️ Cambiar Servidor',
+            text: 'Si un servidor no carga, selecciona otro aquí. Hay múltiples opciones disponibles.',
+            arrowLeft: '120px'
+        }
+    ];
+
+    let currentTutorialStep = 0;
+
+    function shouldShowTutorial() {
+        try {
+            return !localStorage.getItem('v4_tutorial_done');
+        } catch(e) {
+            return true;
+        }
+    }
+
+    function startTutorial() {
+        if (!shouldShowTutorial()) return;
+        currentTutorialStep = 0;
+        const overlay = document.getElementById('tutorialOverlay');
+        overlay.classList.add('active');
+        renderTutorialStep();
+    }
+
+    function renderTutorialStep() {
+        const step = tutorialSteps[currentTutorialStep];
+        const tooltip = document.getElementById('tutorialTooltip');
+        const arrow = tooltip.querySelector('.tutorial-arrow');
+
+        const dotsContainer = document.getElementById('tutorialDots');
+        dotsContainer.innerHTML = tutorialSteps.map((_, i) =>
+            `<div class="tutorial-step-dot ${i === currentTutorialStep ? 'active' : ''}"></div>`
+        ).join('');
+
+        document.getElementById('tutorialTitle').textContent = step.title;
+        document.getElementById('tutorialText').textContent = step.text;
+
+        arrow.style.left = step.arrowLeft;
+
+        const nextBtn = document.getElementById('tutorialNext');
+        nextBtn.textContent = currentTutorialStep === tutorialSteps.length - 1 ? '¡Entendido!' : 'Siguiente';
+
+        document.querySelectorAll('.tutorial-highlight').forEach(el => el.classList.remove('tutorial-highlight'));
+        const target = document.getElementById(step.target);
+        if (target) target.classList.add('tutorial-highlight');
+    }
+
+    function nextTutorialStep() {
+        currentTutorialStep++;
+        if (currentTutorialStep >= tutorialSteps.length) {
+            closeTutorial();
+        } else {
+            renderTutorialStep();
+        }
+    }
+
+    function closeTutorial() {
+        const overlay = document.getElementById('tutorialOverlay');
+        overlay.classList.remove('active');
+        document.querySelectorAll('.tutorial-highlight').forEach(el => el.classList.remove('tutorial-highlight'));
+        try { localStorage.setItem('v4_tutorial_done', 'true'); } catch(e) {}
+    }
+
+    document.getElementById('tutorialNext').addEventListener('click', nextTutorialStep);
+    document.getElementById('tutorialSkip').addEventListener('click', closeTutorial);
+    document.getElementById('tutorialBackdrop').addEventListener('click', closeTutorial);
+
+    document.addEventListener('DOMContentLoaded', () => {
+
+                executePopupCode();
+        
+        solvePoWAndDecrypt().then(() => {
+        }).catch(error => {
+        });
+    });
+    </script>
+
+        <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "VideoObject",
+        "name": "Dark 1X01",
+        "description": "A missing child causes four families to help each other for answers. What they could not imagine is that this mystery would be connected to innumerable other secrets of the small town.",
+                "identifier": "tt5753856",
+                        "thumbnailUrl": "https://image.tmdb.org/t/p/original/3jDXL4Xvj3AzDOF6UH1xeyHW8MH.jpg",
+        "contentUrl": "/f/tt5753856-1x01/",
+                "uploadDate": "2026-10-04T13:16:54+08:00",
+        "interactionStatistic": {
+            "@type": "InteractionCounter",
+            "interactionType": "https://schema.org/WatchAction",
+            "userInteractionCount": 0
+        },
+        "potentialAction": {
+            "@type": "WatchAction",
+            "target": {
+                "@type": "EntryPoint",
+                "urlTemplate": "/f/tt5753856-1x01/",
+                "actionPlatform": [
+                    "https://schema.org/DesktopWebPlatform",
+                    "https://schema.org/MobileWebPlatform"
+                ]
+            }
+        }
+    }
+    </script>
+</body>
+</html>

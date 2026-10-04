@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createHash, createDecipheriv } from "node:crypto";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name) => readFileSync(join(here, "fixtures", name), "utf8");
@@ -25,6 +26,14 @@ globalThis.kino = {
   browser: { capture: async (url, opts) => { captured.push(url); return captureAnswer(url, opts); } },
   error: kinoError,
   log: () => {},
+  // The two kino.crypto calls the embed69 fast path makes, with Node's crypto (hex in/out like Kino's).
+  crypto: {
+    hash: (alg, data) => createHash(alg).update(data, "utf8").digest("hex"),
+    decrypt: (alg, o) => {
+      const d = createDecipheriv(alg, Buffer.from(o.key, "hex"), Buffer.from(o.iv, "hex"));
+      return Buffer.concat([d.update(Buffer.from(o.data, "hex")), d.final()]).toString("utf8");
+    },
+  },
   rank: { shortQuery: (q) => q, sortBySimilarity: (a) => a, filterRelevant: (a) => a },
 };
 const plugin = await import("../plugin.js");
@@ -71,4 +80,27 @@ test("resolve plays what the hidden browser captured, with its headers", async (
 test("resolve without a WebView says so in words the person understands", async () => {
   captureAnswer = async () => { throw kinoError("browser_unavailable", "none"); };
   await assert.rejects(plugin.resolve("sk|/serie/dark/temporada/1/capitulo/1"), (e) => e.code === "unavailable" && /navegador/.test(e.userMessage));
+});
+
+test("embed69Servers decrypts serieskao's /vidurl page (proof-of-work key), latino first", () => {
+  const servers = plugin.embed69Servers(fixture("sk-vidurl-embed69.html"));
+  assert.deepEqual(servers.map((s) => new URL(s.url).host), ["morencius.com", "hglink.to", "voe.sx"]);
+  assert.ok(servers.every((s) => s.lang === "LAT"));
+});
+
+test("embed69Servers answers [] for a page without dataLink", () => {
+  assert.deepEqual(plugin.embed69Servers("<html>nada</html>"), []);
+});
+
+test("resolve takes the embed69 fast path: captures the decrypted embed pages, not the episode page", async () => {
+  pages["https://serieskao.top/vidurl/tt5753856-1x01/"] = fixture("sk-vidurl-embed69.html");
+  captured.length = 0;
+  captureAnswer = async () => ({ media: [{ url: "https://cdn.example/master.m3u8", headers: { Referer: "https://x/" } }], subtitles: [], finalUrl: "" });
+  try {
+    const stream = await plugin.resolve("sk|/serie/dark/temporada/1/capitulo/1");
+    assert.equal(stream.url, "https://cdn.example/master.m3u8");
+    assert.equal(new URL(captured[0]).host, "morencius.com");
+  } finally {
+    delete pages["https://serieskao.top/vidurl/tt5753856-1x01/"];
+  }
 });

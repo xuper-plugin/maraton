@@ -307,16 +307,119 @@ function startHost(url) {
   try { return new URL(url).host; } catch (_) { return ""; }
 }
 
+// ---------- embed69 fast path (same logic web-resolver ran as bypassEmbed69) ----------
+//
+// serieskao's `/vidurl/<imdb>-<s>x<ee>/` player page is an embed69 page: its `dataLink` JSON lists every server, each
+// link AES-CBC encrypted (base64 of iv || ciphertext). The key is either written in the page
+// (`decryptLink(server.link, 'KEY')`) or derived from a small SHA-256 proof of work (POW_CHALLENGE / POW_DIFFICULTY /
+// POW_SALT). Decrypting here gives the embed hosts' own pages, which the hidden browser can open as the top document
+// instead of digging through cross-origin frames.
+
+const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const POW_MAX_NONCE = 2000000;
+
+function b64ToHex(b64) {
+  const clean = String(b64).replace(/[^A-Za-z0-9+/]/g, "");
+  let bits = 0, acc = 0, hex = "";
+  for (const ch of clean) {
+    acc = (acc << 6) | B64.indexOf(ch);
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      hex += ((acc >> bits) & 0xff).toString(16).padStart(2, "0");
+    }
+  }
+  return hex;
+}
+
+function utf8ToHex(s) {
+  return Array.from(new TextEncoder().encode(s), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** An AES key of 16/24/32 bytes, hex; any other length is zero-padded/cut to 32 (as web-resolver's crylink did). */
+function aesKeyHex(keyHex) {
+  const len = keyHex.length / 2;
+  return [16, 24, 32].includes(len) ? keyHex : (keyHex + "0".repeat(64)).slice(0, 64);
+}
+
+function crylink(b64, keyHex) {
+  try {
+    const all = b64ToHex(b64);
+    const key = aesKeyHex(keyHex);
+    return kino.crypto.decrypt(`aes-${(key.length / 2) * 8}-cbc`, {
+      key, keyEncoding: "hex", iv: all.slice(0, 32), ivEncoding: "hex", data: all.slice(32), inputEncoding: "hex",
+    });
+  } catch (_) {
+    return null;
+  }
+}
+
+/** The proof of work's key, hex: sha256(challenge + nonce + salt) for the first nonce whose sha256(challenge + nonce) starts with `difficulty` zeros. */
+function solvePow(challenge, difficulty, salt) {
+  const prefix = "0".repeat(difficulty);
+  for (let nonce = 0; nonce < POW_MAX_NONCE; nonce++) {
+    if (kino.crypto.hash("sha256", `${challenge}${nonce}`).startsWith(prefix)) {
+      return salt ? kino.crypto.hash("sha256", `${challenge}${nonce}${salt}`) : null;
+    }
+  }
+  return null;
+}
+
+/** Decrypted servers of an embed69 page: `[{ lang, server, url }]`, latino first, downloads left out. */
+export function embed69Servers(html) {
+  let keyHex = null;
+  const m = /decryptLink\(server\.link,\s*'(.+?)'\),/.exec(html);
+  if (m) keyHex = utf8ToHex(m[1]);
+  if (!keyHex) {
+    const pm = /POW_CHALLENGE\s*=\s*'([^']+)';[\s\S]*?POW_DIFFICULTY\s*=\s*(\d+);[\s\S]*?POW_SALT\s*=\s*'([^']+)';/.exec(html);
+    if (pm) keyHex = solvePow(pm[1], parseInt(pm[2], 10), pm[3]);
+  }
+  const dlm = /dataLink\s*=\s*(\[[\s\S]*?\])\s*;/.exec(html) || /dataLink\s*=\s*([^;]+)/.exec(html);
+  if (!dlm || !keyHex) return [];
+  let dataLink;
+  try { dataLink = JSON.parse(dlm[1].replace(/\\\//g, "/")); } catch (_) { return []; }
+  const out = [];
+  for (const sec of dataLink || []) {
+    const lang = sec.video_language || "LAT";
+    for (const emb of sec.sortedEmbeds || []) {
+      if (emb.servername === "download") continue;
+      const url = crylink(emb.link, keyHex);
+      if (url && /^https?:\/\//.test(url)) out.push({ lang, server: emb.servername || "", url });
+    }
+  }
+  return out.sort((a, b) => (/lat/i.test(b.lang) ? 1 : 0) - (/lat/i.test(a.lang) ? 1 : 0));
+}
+
+/** Every embed69 server behind the episode's own player pages (`/vidurl/…`), or [] when there is none. */
+async function fastServers(site, episodeUrl, servers) {
+  const out = [];
+  for (const s of servers.filter((u) => u.startsWith(site.base))) {
+    const t0 = Date.now();
+    const r = await kino.fetch(s, { headers: { "User-Agent": UA, Accept: "text/html", Referer: episodeUrl } });
+    if (!r.ok) {
+      kino.log(`embed69 ${safe(s)} -> ${r.status}`);
+      continue;
+    }
+    const found = embed69Servers(r.text());
+    kino.log(`embed69 ${safe(s)}: ${found.length} server(s) in ${Date.now() - t0} ms [${found.map((f) => `${f.lang}/${f.server}@${startHost(f.url)}`).join(", ")}]`);
+    for (const f of found) if (!out.some((o) => o.url === f.url)) out.push(f);
+  }
+  return out;
+}
+
 export async function resolve(ref) {
   const { siteId, site, path } = splitRef(ref);
   const episodeUrl = abs(site, path);
   const html = await page(site, path);
   const servers = serversOf(siteId, html);
-  // Only a page on one of our declared hosts can be opened (the start host must be one kino.fetch may reach).
-  const pages = pagesToOpen(siteId, episodeUrl, servers).filter((u) => Object.values(SITES).some((s) => startHost(u) === startHost(s.base)));
   kino.log(`resolve ${ref}: servers [${servers.map(safe).join(", ")}]`);
-  // No fast path: every server here is an embed whose video address only exists once its own page runs.
-  kino.log(`resolve ${siteId}: no fast path, capture on ${pages.length} page(s): [${pages.map(safe).join(", ")}]`);
+  // Fast path: decrypt embed69's server list and open each embed host's page directly (its player is then the top
+  // document, so autoplay reaches it). Without it, fall back to opening the episode page and digging through frames.
+  const fast = await fastServers(site, episodeUrl, servers);
+  const pages = fast.length
+    ? fast.slice(0, MAX_PAGES).map((f) => f.url)
+    : pagesToOpen(siteId, episodeUrl, servers).filter((u) => Object.values(SITES).some((s) => startHost(u) === startHost(s.base)));
+  kino.log(`resolve ${siteId}: ${fast.length ? "embed69 fast path" : "no fast path"}, capture on ${pages.length} page(s): [${pages.map(safe).join(", ")}]`);
   let lastError = null;
   for (const url of pages) {
     const started = Date.now();
