@@ -263,3 +263,21 @@ test("meta answers only for an IMDb id met in episodes, with the episode list", 
 test("the movie page's servers are its own /vidurl/<imdb>/ player page", () => {
   assert.deepEqual(plugin.serversOf("sk", fixture("sk-pelicula-marea-baja.html")), ["https://serieskao.top/vidurl/tt7434324/"]);
 });
+
+test("a server ref addresses one language/server; resolve opens only that one", async () => {
+  const f = { lang: "SUB", server: "Voe", url: "https://voe.sx/e/x" };
+  const r = plugin.serverRef("sk|/serie/dark/temporada/1/capitulo/1", f);
+  assert.equal(r, "sk|/serie/dark/temporada/1/capitulo/1#sub/voe");
+  assert.deepEqual(plugin.parseServerRef(r), { base: "sk|/serie/dark/temporada/1/capitulo/1", only: { lang: "sub", server: "voe" } });
+  assert.deepEqual(plugin.parseServerRef("sk|/x#junk"), { base: "sk|/x", only: null });
+  pages["https://serieskao.top/vidurl/tt5753856-1x01/"] = fixture("sk-vidurl-embed69.html");
+  captured.length = 0;
+  captureAnswer = async () => ({ media: [{ url: "https://cdn.example/master.m3u8", headers: {} }], subtitles: [], finalUrl: "" });
+  try {
+    await plugin.resolve("sk|/serie/dark/temporada/1/capitulo/1#lat/voe");
+    assert.deepEqual(captured.map((u) => new URL(u).host), ["voe.sx"]);
+    await assert.rejects(plugin.resolve("sk|/serie/dark/temporada/1/capitulo/1#esp/voe"), (e) => e.code === "not_found");
+  } finally {
+    delete pages["https://serieskao.top/vidurl/tt5753856-1x01/"];
+  }
+});

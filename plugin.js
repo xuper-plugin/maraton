@@ -270,8 +270,23 @@ export async function browse(ref, cursor) {
 
 // ---------- episodes ----------
 
+/**
+ * `<episodeRef>#<lang>/<server>` addresses ONE server of an episode (`sk|/serie/dark/temporada/1/capitulo/1#esp/voe`):
+ * what a labeled alternative will hand back to resolve once the SDK resolves alternatives lazily. Without `#`, resolve
+ * picks the server itself.
+ */
+export function serverRef(ref, f) {
+  return `${String(ref).split("#")[0]}#${langOf(f.lang)}/${String(f.server || "").toLowerCase()}`;
+}
+
+export function parseServerRef(ref) {
+  const [base, frag] = String(ref).split("#");
+  const m = /^(lat|esp|sub)\/([a-z0-9_-]{1,40})$/.exec(frag || "");
+  return { base, only: m ? { lang: m[1], server: m[2] } : null };
+}
+
 function splitRef(ref) {
-  const s = String(ref);
+  const s = parseServerRef(ref).base;
   const i = s.indexOf("|");
   const siteId = s.slice(0, i);
   const path = s.slice(i + 1);
@@ -640,7 +655,12 @@ export async function resolve(ref, options) {
   // document, so autoplay reaches it). Without it, fall back to opening the episode page and digging through frames.
   const lang = preferredLang();
   const remembered = (storageGet(serverKey(siteId)) || {}).server || "";
-  const fast = rankServers(await fastServers(site, episodeUrl, servers), lang, remembered);
+  const { only } = parseServerRef(ref);
+  let fast = rankServers(await fastServers(site, episodeUrl, servers), lang, remembered);
+  if (only) {
+    fast = fast.filter((f) => langOf(f.lang) === only.lang && (f.server || "").toLowerCase() === only.server);
+    if (!fast.length) throw kino.error("not_found", `sin el servidor ${only.lang}/${only.server}`, { userMessage: "Ese servidor ya no está disponible para este video." });
+  }
   const targets = fast.length
     ? fast.slice(0, MAX_PAGES)
     : pagesToOpen(siteId, episodeUrl, servers).filter((u) => Object.values(SITES).some((s) => startHost(u) === startHost(s.base))).map((url) => ({ url }));
