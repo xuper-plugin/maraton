@@ -261,9 +261,33 @@ function cards(siteId, html) {
 
 // ---------- search / home / browse ----------
 
+/**
+ * `scopedSearch`: what a "Ver más" page's own search field asks (`query.within` = that page's browse ref). A catalog
+ * row is answered with the site's search, kept to that row's site and kind (a "Series" row never shows a movie); a
+ * genre page is answered with `null`, which tells Kino to filter the titles it already loaded: neither site can search
+ * inside a genre, and serieskao's search results carry no genres to filter by.
+ */
+export function scopeOf(within) {
+  const [head, siteId, kind] = String(within || "").split("|");
+  if (head !== "row" || !ALL_SITES.includes(siteId)) return null;
+  if (siteId === "sk" && SITES.sk.catalog[kind]) return { siteId, keep: (i) => i.ref.startsWith(`sk|/${kind}/`) };
+  if (siteId === AC.id && AC_KINDS.includes(kind)) return { siteId, keep: (i) => i.ref.startsWith(`ac|${kind}/`) };
+  return null;
+}
+
+async function scopedSearch(query, q) {
+  const scope = scopeOf(query.within);
+  if (!scope || !activeSites().includes(scope.siteId)) return null;
+  const found = scope.siteId === AC.id ? await acSearch(q) : cards("sk", await page(SITES.sk, SITES.sk.search(q)));
+  const kept = found.filter(scope.keep);
+  kino.log(`search within ${scope.siteId} row: ${found.length} found, ${kept.length} in the row`);
+  return kino.rank.sortBySimilarity(kept, q, (it) => it.title).slice(0, 100);
+}
+
 export async function search(query) {
   const q = String((query && query.q) || "").trim();
   if (!q) return [];
+  if (query.within) return scopedSearch(query, q);
   // The guide's advice: the title Kino typed, its head (kino.rank.shortQuery), then TMDB's original title and the
   // other titles Kino knows, tried in that order until a site answers something. At most four tries per site.
   const tries = [q, kino.rank.shortQuery(q), query.originalTitle, ...(query.altTitles || [])]

@@ -526,3 +526,14 @@ test("resolve: the stream names its copy and offers the servers it did not try, 
     delete pages["https://serieskao.top/vidurl/tt5753856-1x01/"];
   }
 });
+
+test("scopedSearch: a catalog row keeps its site and kind; a genre page lets Kino filter (null)", async () => {
+  config.useAllcalidad = false;
+  const series = await plugin.search({ q: "dark", within: "row|sk|serie" });
+  assert.ok(series.length > 0 && series.every((i) => i.ref.startsWith("sk|/serie/")));
+  const anime = await plugin.search({ q: "dark", within: "row|sk|anime" });
+  assert.ok(anime.length > 0 && anime.every((i) => i.ref.startsWith("sk|/anime/")));
+  assert.equal(await plugin.search({ q: "dark", within: "genre|terror" }), null);
+  assert.equal(await plugin.search({ q: "dark", within: "row|ac|movie" }), null); // switched off
+  assert.equal(plugin.scopeOf("row|zz|x"), null);
+});
