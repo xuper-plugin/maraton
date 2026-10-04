@@ -13,7 +13,7 @@ const SITES = {
     name: "SeriesKao",
     base: "https://serieskao.top",
     search: (q) => `/search?s=${encodeURIComponent(q).replace(/%2F/gi, "/")}`,
-    catalog: { serie: "/series?page=", anime: "/animes?page=" },
+    catalog: { serie: "/series?page=", anime: "/animes?page=", pelicula: "/peliculas?page=" },
     episodeRx: /<a[^>]+href="([^"]*?\/temporada\/(\d+)\/capitulo\/(\d+))"[^>]*>([\s\S]*?)<\/a>/gi,
   },
   sl: {
@@ -106,13 +106,15 @@ function skCards(siteId, html) {
     const link = /<a href="([^"]+)" class="card__link"/i.exec(block);
     if (!link) continue;
     const path = pathOf(site, decode(link[1]));
-    if (!/^\/(serie|anime)\//.test(path) || seen.has(path)) continue;
+    if (!/^\/(serie|anime|pelicula)\//.test(path) || seen.has(path)) continue;
     seen.add(path);
-    const title = text((/<h2 class="card__title">([\s\S]*?)<\/h2>/i.exec(block) || [])[1]);
+    // Search and catalogs say <h2>, the home page's "Recién agregado" says <h3>.
+    const title = text((/<h[23] class="card__title">([\s\S]*?)<\/h[23]>/i.exec(block) || [])[1]);
     if (!title) continue;
     const img = /<img[^>]+>/i.exec(block);
     const year = text((/card__badge--year">([\s\S]*?)</i.exec(block) || [])[1]);
-    const item = { id: idOf(siteId, path), ref: `${siteId}|${path}`, title, kind: "series" };
+    const kind = path.startsWith("/pelicula/") ? "movie" : "series";
+    const item = { id: idOf(siteId, path), ref: `${siteId}|${path}`, title, kind };
     const poster = img ? attr(img[0], "src") : "";
     if (/^https?:\/\//.test(poster)) item.poster = poster;
     if (/^\d{4}$/.test(year)) item.year = year;
@@ -186,12 +188,64 @@ export async function search(query) {
   return ranked;
 }
 
+/**
+ * serieskao's home "Últimos Episodios": one card per new episode. Each becomes its SERIES (Kino opens the show, the
+ * person picks the episode), once per show, with the newest episode as a badge ("T1 E3").
+ */
+export function latestEpisodes(siteId, html) {
+  const site = SITES[siteId];
+  const out = [];
+  const seen = new Set();
+  const rx = /<article class="episode-card">([\s\S]*?)<\/article>/gi;
+  let m;
+  while ((m = rx.exec(html))) {
+    const block = m[1];
+    const href = (/<a href="([^"]+)"/i.exec(block) || [])[1];
+    if (!href) continue;
+    const path = pathOf(site, decode(href)).replace(/\/temporada\/\d+\/capitulo\/\d+\/?$/, "");
+    if (!/^\/(serie|anime)\/[^/]+$/.test(path) || seen.has(path)) continue;
+    seen.add(path);
+    const title = text((/episode-card__title">([\s\S]*?)<\/h3>/i.exec(block) || [])[1]);
+    if (!title) continue;
+    const item = { id: idOf(siteId, path), ref: `${siteId}|${path}`, title, kind: "series" };
+    const img = /<img[^>]+>/i.exec(block);
+    const poster = img ? attr(img[0], "src") : "";
+    if (/^https?:\/\//.test(poster)) item.poster = poster;
+    const badge = text((/episode-card__badge">([\s\S]*?)</i.exec(block) || [])[1]);
+    if (badge) item.badges = [badge.slice(0, 20)];
+    if (path.startsWith("/anime/")) item.genres = ["Anime"];
+    out.push(item);
+  }
+  return out;
+}
+
+/** The home page's "Recién Agregado" section only (its cards, movies included). */
+function recentlyAdded(siteId, html) {
+  const i = html.search(/section__title">\s*Recién Agregado/i);
+  return i < 0 ? [] : cards(siteId, html.slice(i));
+}
+
 export async function home() {
-  const rows = [
-    { siteId: "sk", kind: "serie", title: "Series · SeriesKao", genre: "series" },
-    { siteId: "sk", kind: "anime", title: "Anime · SeriesKao", genre: "anime" },
+  const catalogs = [
+    { siteId: "sk", kind: "serie", title: "Series", genre: "series" },
+    { siteId: "sk", kind: "anime", title: "Anime", genre: "anime" },
+    { siteId: "sk", kind: "pelicula", title: "Películas", genre: "peliculas" },
   ];
-  const out = await Promise.all(rows.map(async (r) => {
+  const front = (async () => {
+    try {
+      const html = await page(SITES.sk, "/");
+      const rows = [];
+      const latest = latestEpisodes("sk", html);
+      if (latest.length) rows.push({ id: "sk-latest", title: "Nuevos episodios", items: latest, genre: "series" });
+      const recent = recentlyAdded("sk", html);
+      if (recent.length) rows.push({ id: "sk-recent", title: "Recién agregado", items: recent });
+      return rows;
+    } catch (e) {
+      kino.log(`home sk/front: ${e.code || ""} ${e.message}`);
+      return [];
+    }
+  })();
+  const rows = await Promise.all(catalogs.map(async (r) => {
     try {
       const items = cards(r.siteId, await page(SITES[r.siteId], SITES[r.siteId].catalog[r.kind] + "1"));
       return items.length ? { id: `${r.siteId}-${r.kind}`, title: r.title, items, ref: `row|${r.siteId}|${r.kind}`, genre: r.genre } : null;
@@ -200,7 +254,9 @@ export async function home() {
       return null;
     }
   }));
-  return out.filter(Boolean);
+  const out = [...(await front), ...rows.filter(Boolean)];
+  kino.log(`home: ${out.length} rows [${out.map((r) => `${r.id}:${r.items.length}`).join(", ")}]`);
+  return out;
 }
 
 export async function browse(ref, cursor) {
@@ -271,7 +327,11 @@ export async function episodes(ref) {
   try {
     const first = await page(site, pathOf(site, list[0].ref.split("|")[1]));
     const imdb = /\/(?:vidurl|video)\/(tt\d{5,10})-/i.exec(first);
-    if (imdb) series.ids = { imdb: imdb[1] };
+    if (imdb) {
+      series.ids = { imdb: imdb[1] };
+      // For meta(): Kino may later ask about this IMDb id from its own info page.
+      storageSet(imdbKey(imdb[1]), { ref }, IMDB_MEMORY_MS);
+    }
     kino.log(`episodes ${siteId}: IMDb ${imdb ? imdb[1] : "not found"}`);
   } catch (e) {
     kino.log(`episodes ${siteId}: no IMDb id (${e.code || ""} ${e.message})`);
@@ -517,6 +577,8 @@ function storageRemove(key) {
 }
 
 const streamKey = (ref) => "stream:" + ref;
+const imdbKey = (imdb) => "imdb:" + imdb;
+const IMDB_MEMORY_MS = 30 * 86400 * 1000 - 1;
 const serverKey = (siteId) => "server:" + siteId;
 
 /** The cached stream's own expiry, rewritten for how much of it is left; null when it is (nearly) gone. */
@@ -613,5 +675,23 @@ export async function resolve(ref, options) {
   if (lastError && lastError.code === "busy") {
     throw kino.error("unavailable", "navegador ocupado", { userMessage: "Hay otro video buscándose en este momento. Vuelve a intentar en unos segundos." });
   }
-  throw kino.error("not_found", lastError ? `${lastError.code || ""} ${lastError.message}` : "sin servidores", { userMessage: "No encontramos el video de este episodio. Prueba otra fuente." });
+  throw kino.error("not_found", lastError ? `${lastError.code || ""} ${lastError.message}` : "sin servidores", { userMessage: "No encontramos el video. Prueba otra fuente." });
+}
+
+// ---------- meta ----------
+
+/**
+ * Describes a series Kino's info page could not fill from TMDB (a synopsis, a poster, the episode list), for an IMDb id
+ * this plugin has already met in `episodes` (the player pages are keyed by it). Any other title: no answer.
+ */
+export async function meta(query) {
+  const imdb = query && query.ids && query.ids.imdb;
+  if (!imdb || (query.type && query.type !== "series")) return null;
+  const known = storageGet(imdbKey(imdb));
+  if (!known || !known.ref) return null;
+  const { series, episodes: list } = await episodes(known.ref);
+  const out = { episodes: list.map((e) => ({ season: e.season, number: e.number, ...(e.title ? { title: e.title } : {}) })) };
+  for (const k of ["title", "overview", "poster", "year"]) if (series[k]) out[k] = series[k];
+  kino.log(`meta ${imdb}: ${known.ref}, ${out.episodes.length} episodes`);
+  return out;
 }

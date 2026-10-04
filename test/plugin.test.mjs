@@ -222,3 +222,44 @@ test("a site that times out says so in Spanish and resolve does not hang on it",
     kino.fetch = saved;
   }
 });
+
+test("home's Nuevos episodios: one series per show, newest episode as a badge", () => {
+  const items = plugin.latestEpisodes("sk", fixture("sk-home.html"));
+  assert.equal(items.length, 12);
+  assert.equal(new Set(items.map((i) => i.ref)).size, items.length);
+  for (const i of items) {
+    assert.equal(i.kind, "series");
+    assert.match(i.ref, /^sk\|\/(serie|anime)\/[^/]+$/);
+    assert.match(i.badges[0], /^T\d+ E\d+$/);
+  }
+});
+
+test("Recién agregado keeps movies as movies and series as series", async () => {
+  pages["https://serieskao.top/"] = fixture("sk-home.html");
+  pages["https://serieskao.top/series?page=1"] = fixture("sk-search-dark.html");
+  try {
+    const rows = await plugin.home();
+    const recent = rows.find((r) => r.id === "sk-recent");
+    assert.ok(recent.items.some((i) => i.kind === "movie" && i.ref.startsWith("sk|/pelicula/")));
+    assert.ok(rows.find((r) => r.id === "sk-latest"));
+    // Catalogs that failed (404 here) leave no row and break nothing.
+    assert.ok(!rows.find((r) => r.id === "sk-anime"));
+  } finally {
+    delete pages["https://serieskao.top/"];
+    delete pages["https://serieskao.top/series?page=1"];
+  }
+});
+
+test("meta answers only for an IMDb id met in episodes, with the episode list", async () => {
+  assert.equal(await plugin.meta({ type: "series", ids: { imdb: "tt5753856" } }), null);
+  await plugin.episodes("sk|/serie/dark");
+  const m = await plugin.meta({ type: "series", ids: { imdb: "tt5753856" } });
+  assert.equal(m.title, "Dark");
+  assert.equal(m.episodes.length, 26);
+  assert.deepEqual(m.episodes[0], { season: 1, number: 1, title: "Secretos" });
+  assert.equal(await plugin.meta({ type: "movie", ids: { imdb: "tt5753856" } }), null);
+});
+
+test("the movie page's servers are its own /vidurl/<imdb>/ player page", () => {
+  assert.deepEqual(plugin.serversOf("sk", fixture("sk-pelicula-marea-baja.html")), ["https://serieskao.top/vidurl/tt7434324/"]);
+});

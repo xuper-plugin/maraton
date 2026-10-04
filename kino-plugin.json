@@ -1,7 +1,7 @@
 {
   "id": "maraton",
   "name": "Maratón",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "apiVersion": 7,
   "entry": "plugin.js",
   "description": "Series y anime de sitios web en español. Abre la página del episodio en un navegador oculto para encontrar el video.",
@@ -18,11 +18,13 @@
     "home",
     "browse",
     "episodes",
-    "resolve"
+    "resolve",
+    "meta"
   ],
   "categories": [
     "series",
-    "anime"
+    "anime",
+    "movies"
   ],
   "browser": true,
   "streamHosts": "any",
