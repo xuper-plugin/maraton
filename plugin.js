@@ -671,6 +671,106 @@ export async function episodes(ref) {
   return { series, episodes: list };
 }
 
+// ---------- what a capture saw: the film, not the ad ----------
+//
+// Measured on the Redmi (allcalidad Matrix, 2026-10-04): an embed's player first loaded a casino preroll MP4, the capture
+// handed it over, and Kino played the ad as the movie. These players stream the real video as HLS; their ads come as
+// short MP4s from ad servers. So: manifests win, and an MP4 is only kept when the capture saw no manifest at all and it
+// does not look like an ad.
+
+/** Words that only an ad's URL carries (whole tokens of host and path; never "ad" alone: segment CDNs use it). */
+const AD_TOKENS = new Set([
+  "ads", "adserver", "adservice", "advert", "adverts", "advertising", "vast", "vpaid", "preroll", "prerolls", "midroll",
+  "sponsor", "sponsored", "banner", "banners", "promo", "casino", "bet", "bets", "betting", "apuesta", "apuestas",
+  "jugabet", "bet365", "codere", "rushbet", "wplay", "betplay", "1xbet", "stake", "slots",
+]);
+/** Ad networks seen in embed players, matched as the host or a parent of it. */
+const AD_HOSTS = [
+  "doubleclick.net", "googlesyndication.com", "imasdk.googleapis.com", "adnxs.com", "exoclick.com", "juicyads.com",
+  "popads.net", "propellerads.com", "trafficjunky.net", "adsterra.com", "a-ads.com", "hilltopads.net", "clickadu.com",
+  "tsyndicate.com", "magsrv.com", "realsrv.com", "onclickads.net",
+];
+
+export function looksLikeAd(url) {
+  const m = /^https?:\/\/([^/?#]+)([^?#]*)/i.exec(String(url || ""));
+  if (!m) return false;
+  const host = m[1].toLowerCase().replace(/:\d+$/, "");
+  if (AD_HOSTS.some((h) => host === h || host.endsWith("." + h))) return true;
+  const tokens = (host + " " + m[2]).toLowerCase().split(/[^a-z0-9]+/);
+  return tokens.some((t) => AD_TOKENS.has(t) || /casino|betting|jugabet|preroll/.test(t));
+}
+
+const isManifest = (m) => /\.m3u8(\?|$)|\.mpd(\?|$)|master\.txt/i.test(m.url) || /mpegurl|dash/i.test(m.mime || "");
+const isMp4 = (m) => /\.mp4(\?|$)/i.test(m.url) || /video\/mp4/i.test(m.mime || "");
+
+/** Below this an MP4 is a preroll, not a film or an episode (a 45-minute episode at the lowest quality is > 100 MB). */
+const MIN_FILM_MP4_BYTES = 30 * 1024 * 1024;
+
+/**
+ * The capture's media without ads: anything [looksLikeAd] out; when a manifest is there, every MP4 out (never the main
+ * copy, never an alternative); when only MP4s are left, one a HEAD says is under [MIN_FILM_MP4_BYTES] out too. A HEAD
+ * that cannot be made (a host this plugin may not fetch) keeps the MP4: better a copy than nothing.
+ */
+export async function filmMedia(media) {
+  const clean = (media || []).filter((m) => m && m.url && !looksLikeAd(m.url));
+  const dropped = (media || []).length - clean.length;
+  if (clean.some(isManifest)) {
+    const out = clean.filter((m) => !isMp4(m));
+    if (dropped || out.length < clean.length) kino.log(`media: ${dropped} ad(s) and ${clean.length - out.length} mp4(s) dropped next to a manifest`);
+    return out;
+  }
+  const out = [];
+  for (const m of clean) {
+    if (!isMp4(m)) { out.push(m); continue; }
+    const size = await contentLength(m);
+    if (size !== null && size < MIN_FILM_MP4_BYTES) {
+      kino.log(`media: ${safe(m.url)} is ${Math.round(size / 1048576)} MB, a preroll: dropped`);
+      continue;
+    }
+    out.push(m);
+  }
+  if (dropped) kino.log(`media: ${dropped} ad(s) dropped`);
+  return out;
+}
+
+async function contentLength(m) {
+  try {
+    const r = await kino.fetch(m.url, { method: "HEAD", headers: m.headers || {}, timeoutMs: 4000 });
+    const v = r.headers && (r.headers["content-length"] || r.headers["Content-Length"]);
+    const n = parseInt(v, 10);
+    return r.ok && n > 0 ? n : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// ---------- servers that failed lately ----------
+
+/** How long a server that failed stays at the back of the line (a CDN unreachable from this network, a dead host). */
+const FAILED_SERVER_MS = 6 * 3600 * 1000;
+const failedKey = (siteId) => "failed:" + siteId;
+
+export function failedServers(siteId, nowMs = Date.now()) {
+  const all = storageGet(failedKey(siteId)) || {};
+  return new Set(Object.keys(all).filter((k) => all[k] > nowMs));
+}
+
+function markServer(siteId, f, failed) {
+  const name = serverName(f);
+  if (name === "episode_page") return;
+  const all = storageGet(failedKey(siteId)) || {};
+  const now = Date.now();
+  for (const k of Object.keys(all)) if (all[k] <= now) delete all[k];
+  if (failed) all[name] = now + FAILED_SERVER_MS;
+  else delete all[name];
+  storageSet(failedKey(siteId), all, FAILED_SERVER_MS);
+}
+
+/** [list] with every server in [failed] moved to the end, in the same relative order. */
+export function lastIfFailed(list, failed) {
+  return [...list.filter((f) => !failed.has(serverName(f))), ...list.filter((f) => failed.has(serverName(f)))];
+}
+
 // ---------- resolve ----------
 
 /** The episode page's servers, in the page's order: `data-url` buttons, then the player iframe. Absolute URLs. */
@@ -961,6 +1061,9 @@ function preferredLang() {
 
 // ---------- resolve ----------
 
+/** At most this many lazy copies: the automatic fallback walks them in order, so a long tail only delays the error. */
+const MAX_LAZY = 3;
+
 /** "Latino · Streamwish": how the player's Servidor list names one copy (at most 48 characters). */
 export function copyLabel(f) {
   if (!f || !f.url) return "";
@@ -976,27 +1079,32 @@ export function copyLabel(f) {
  * `{ label, ref }` that Kino resolves through `resolve(<ref>#<lang>/<server>)` only if the person picks it in the
  * player's Servidor list or the fallback reaches it — so the first play is never slower for offering them.
  */
-export function alternativesOf(rest, playing, others, ref) {
+export function alternativesOf(rest, playing, others, ref, failed = new Set()) {
   const out = rest.map((m) => {
     const a = { url: m.url, headers: m.headers };
     if (m.mime) a.mime = m.mime;
     if (playing && playing.url) a.label = `${copyLabel(playing)} (otra lista)`.slice(0, 48);
     return a;
   });
+  let lazy = 0;
   for (const f of others) {
     if (playing && f.url === playing.url) continue;
+    if (failed.has(serverName(f))) continue;
+    if (lazy++ >= MAX_LAZY) break;
     out.push({ label: copyLabel(f), ref: serverRef(ref, f) });
   }
   return out.slice(0, 8);
 }
 
-function streamOf(got, server, others = [], ref = "") {
-  const [first, ...rest] = got.media;
+function streamOf(got, server, others = [], ref = "", failed = new Set()) {
+  const [first, ...more] = got.media;
+  // Never an MP4 next to a manifest (filmMedia already drops them; this guards any other caller).
+  const rest = got.media.some(isManifest) ? more.filter((m) => !isMp4(m)) : more;
   const stream = { url: first.url, headers: first.headers };
   if (first.mime) stream.mime = first.mime;
   const label = copyLabel(server);
   if (label) stream.label = label;
-  const alternatives = alternativesOf(rest, server, others, ref);
+  const alternatives = alternativesOf(rest, server, others, ref, failed);
   if (alternatives.length) stream.alternatives = alternatives;
   // The embed's own subtitle tracks: these sites only carry Spanish ones; the label says which audio they came with.
   const subLabel = server && server.lang ? `Español (${LANG_LABEL[langOf(server.lang)]})` : "Español";
@@ -1027,6 +1135,7 @@ export async function resolve(ref, options) {
   const remembered = (storageGet(serverKey(siteId)) || {}).server || "";
   const chosen = String(configValue("server", "auto"));
   const { only } = parseServerRef(ref);
+  const failed = failedServers(siteId);
   let fast;
   let fallbackPages = [];
   if (isAc) {
@@ -1043,6 +1152,7 @@ export async function resolve(ref, options) {
     fast = rankServers(await fastServers(site, episodeUrl, servers), lang, remembered, chosen);
     fallbackPages = pagesToOpen(siteId, episodeUrl, servers).filter((u) => Object.values(SITES).some((x) => startHost(u) === startHost(x.base)));
   }
+  fast = lastIfFailed(fast, failed);
   if (only) {
     fast = fast.filter((f) => langOf(f.lang) === only.lang && (f.server || "").toLowerCase() === only.server);
     if (!fast.length) throw kino.error("not_found", `sin el servidor ${only.lang}/${only.server}`, { userMessage: "Ese servidor ya no está disponible para este video." });
@@ -1050,7 +1160,7 @@ export async function resolve(ref, options) {
   const targets = fast.length
     ? fast.slice(0, MAX_PAGES)
     : fallbackPages.map((url) => ({ url }));
-  kino.log(`resolve ${siteId}: ${isAc ? "API embeds" : fast.length ? "embed69 fast path" : "no fast path"} (idioma ${lang}, último servidor ${remembered || "-"}), capture on ${targets.length} page(s): [${targets.map((t) => `${t.lang ? t.lang + "/" : ""}${safe(t.url)}`).join(", ")}]`);
+  kino.log(`resolve ${siteId}: ${isAc ? "API embeds" : fast.length ? "embed69 fast path" : "no fast path"} (idioma ${lang}, último servidor ${remembered || "-"}, fallaron hace poco ${[...failed].join("/") || "-"}), capture on ${targets.length} page(s): [${targets.map((t) => `${t.lang ? t.lang + "/" : ""}${safe(t.url)}`).join(", ")}]`);
   let lastError = null;
   const failedHere = new Set();
   for (let p = 0; p < targets.length; p++) {
@@ -1066,10 +1176,20 @@ export async function resolve(ref, options) {
     try {
       const got = await kino.browser.capture(target.url, { timeoutMs, headers: { Referer: (site ? site.base : "https://allcalidad.re") + "/" } });
       kino.log(`capture ok in ${Date.now() - started} ms: ${got.media.length} media [${got.media.map((m) => safe(m.url)).join(", ")}], ${got.subtitles.length} subtitles`);
-      if (!got.media.length) continue;
+      got.media = await filmMedia(got.media);
+      if (!got.media.length) {
+        // Only ads: as good as a failure for this server.
+        failedHere.add(target.url);
+        if (target.server) markServer(siteId, target, true);
+        report("maraton:capture", "only_ads", `server=${serverName(target)}`);
+        continue;
+      }
       // A lazy copy (a server ref) offers nothing more: Kino drops a lazy copy's own alternatives anyway.
-      const stream = streamOf(got, target, only ? [] : fast.filter((f) => f !== target && !failedHere.has(f.url)), parseServerRef(ref).base);
-      if (target.server) storageSet(serverKey(siteId), { server: target.server.toLowerCase() });
+      const stream = streamOf(got, target, only ? [] : fast.filter((f) => f !== target && !failedHere.has(f.url)), parseServerRef(ref).base, failed);
+      if (target.server) {
+        storageSet(serverKey(siteId), { server: target.server.toLowerCase() });
+        markServer(siteId, target, false);
+      }
       const expiresAtMs = stream.expiresInSeconds ? Date.now() + stream.expiresInSeconds * 1000 : 0;
       const keepMs = expiresAtMs ? Math.min(STREAM_CACHE_MAX_MS, expiresAtMs - Date.now() - EXPIRY_MARGIN_S * 1000) : STREAM_CACHE_UNKNOWN_MS;
       if (keepLinks && keepMs > 60000) storageSet(streamKey(ref), { stream, until: Date.now() + keepMs, expiresAtMs }, keepMs);
@@ -1078,6 +1198,7 @@ export async function resolve(ref, options) {
     } catch (e) {
       lastError = e;
       failedHere.add(target.url);
+      if (target.server && e.code !== "busy" && e.code !== "browser_unavailable" && e.code !== "not_allowed") markServer(siteId, target, true);
       kino.log(`capture failed after ${Date.now() - started} ms on ${startHost(target.url)}: ${e.code || ""} ${e.message}`);
       // Which server's player let us down, by our own name for it (never its URL).
       report("maraton:capture", e.code || "error", `server=${serverName(target)}`, `ms=${Date.now() - started}`);
@@ -1144,7 +1265,7 @@ async function checkSite(id) {
 /** Every key this plugin keeps for streams and servers (what "Borrar enlaces guardados" removes). */
 function linkKeys() {
   try {
-    return (kino.storage.keys() || []).filter((k) => k.startsWith("stream:") || k.startsWith("server:"));
+    return (kino.storage.keys() || []).filter((k) => k.startsWith("stream:") || k.startsWith("server:") || k.startsWith("failed:"));
   } catch (_) {
     return [];
   }

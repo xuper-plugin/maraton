@@ -505,7 +505,7 @@ test("the playing copy is labelled; every other server and language is a lazy { 
     { label: "Subtitulado · Streamwish", ref: "sk|/serie/dark/temporada/1/capitulo/1#sub/streamwish" },
   ]);
   const many = Array.from({ length: 12 }, (_, i) => ({ lang: "LAT", server: `s${i}`, url: `https://h${i}.example/e` }));
-  assert.equal(plugin.alternativesOf([], playing, many, "r").length, 8);
+  assert.equal(plugin.alternativesOf([], playing, many, "r").length, 3);
 });
 
 test("resolve: the stream names its copy and offers the servers it did not try, not the ones that failed", async () => {
@@ -584,4 +584,88 @@ test("richer cards: serieskao ratings, allcalidad runtime/quality/genres, series
   assert.equal(plugin.acItem({ kind: "tvshow", tmdb_id: 1, title: "S", runtime: 50 }).runtimeMinutes, undefined);
   const ep = await plugin.episodes("sk|/serie/dark");
   assert.deepEqual(ep.series.genres, ["Crimen", "Drama", "Sci-Fi & Fantasy", "Misterio"]);
+});
+
+test("ads are recognised by real-shaped URLs; segment CDNs and film hosts are not", () => {
+  for (const u of [
+    "https://cdn.jugabet.cl/promo/preroll-15s.mp4",
+    "https://static.casinoplay.example/video/intro.mp4",
+    "https://imasdk.googleapis.com/js/sdkloader/vast.mp4",
+    "https://s.magsrv.com/v1/vast.php?idzone=123",
+    "https://media.example/ads/prerolls/300x250.mp4",
+    "https://bet365.example/stream/a.mp4",
+  ]) assert.ok(plugin.looksLikeAd(u), u);
+  for (const u of [
+    "https://audinifer.com/stream/680pItk3zi6zc5qNm4WU-Q/kjhhiuahiuhgihdf/1791135524/63911296/master.m3u8",
+    "https://p16-ad-site-sign-sg.tiktokcdn.com/ad-site-i18n-sg/202605045d0d9ff77d408f9c468b94d4",
+    "https://hls2.goodstream.one/hls2/01/00123/abc_n/master.m3u8?t=x",
+    "https://vimeos.net/hls/xyz/index-v1-a1.m3u8",
+  ]) assert.ok(!plugin.looksLikeAd(u), u);
+});
+
+test("filmMedia: a manifest drops every mp4 and every ad; only-mp4 captures drop short ones by HEAD", async () => {
+  const ad = { url: "https://cdn.jugabet.cl/promo/preroll.mp4", headers: {} };
+  const m3u8 = { url: "https://cdn.example/hls/x/master.m3u8", mime: "application/vnd.apple.mpegurl", headers: { Cookie: "a=b" } };
+  const mp4 = { url: "https://files.example/v/film.mp4", headers: {} };
+  assert.deepEqual(await plugin.filmMedia([ad, mp4, m3u8]), [m3u8]);
+  const saved = kino.fetch;
+  try {
+    kino.fetch = async (url, o) => ({ ok: true, status: 200, headers: { "content-length": url.includes("short") ? String(12 * 1048576) : String(900 * 1048576) }, text: () => "" });
+    const short = { url: "https://files.example/v/short.mp4", headers: {} };
+    assert.deepEqual(await plugin.filmMedia([short, mp4]), [mp4]);
+    kino.fetch = async () => { throw Object.assign(new Error("host"), { code: "host_not_allowed" }); };
+    assert.deepEqual(await plugin.filmMedia([short]), [short]); // cannot check: kept
+    assert.deepEqual(await plugin.filmMedia([ad]), []);
+  } finally {
+    kino.fetch = saved;
+  }
+});
+
+test("Matrix as measured: a capture of only a casino preroll is a failure, the next server plays, no mp4 offered", async () => {
+  const AC = "https://tmdb.allcalidad.re";
+  pages[`${AC}/v1/playback/movie/603`] = fixture("ac-playback-movie-603.json");
+  captured.length = 0;
+  captureAnswer = async (url) => (url.includes("vimeos")
+    ? { media: [{ url: "https://cdn.jugabet.cl/promo/preroll.mp4", headers: {} }], subtitles: [], finalUrl: "" }
+    : { media: [{ url: "https://hls2.goodstream.one/hls2/01/x/master.m3u8", headers: { Referer: "https://goodstream.one/", Cookie: "c=1" } },
+      { url: "https://cdn.jugabet.cl/promo/preroll.mp4", headers: {} }], subtitles: [], finalUrl: "" });
+  try {
+    const st = await plugin.resolve("ac|movie/603");
+    assert.equal(st.url, "https://hls2.goodstream.one/hls2/01/x/master.m3u8");
+    assert.deepEqual(st.headers, { Referer: "https://goodstream.one/", Cookie: "c=1" }); // capture's headers passed as is
+    assert.ok(!(st.alternatives || []).some((a) => a.url && /\.mp4/.test(a.url)));
+    assert.ok(plugin.failedServers("ac").has("vimeos"));
+    assert.ok(reports.some((r) => r[1] === "only_ads"));
+  } finally {
+    delete pages[`${AC}/v1/playback/movie/603`];
+  }
+});
+
+test("a server that failed lately goes to the back and out of the lazy copies; a success clears it", async () => {
+  pages["https://serieskao.top/vidurl/tt5753856-1x01/"] = fixture("sk-vidurl-embed69.html");
+  captured.length = 0;
+  captureAnswer = async (url) => {
+    if (url.includes("hglink")) throw Object.assign(new Error("timeout"), { code: "timeout" });
+    return { media: [{ url: "https://cdn.example/master.m3u8", headers: {} }], subtitles: [], finalUrl: "" };
+  };
+  try {
+    await plugin.resolve("sk|/serie/dark/temporada/1/capitulo/1");
+    assert.ok(plugin.failedServers("sk").has("streamwish"));
+    store.delete("stream:sk|/serie/dark/temporada/1/capitulo/1");
+    store.delete("server:sk"); // only the failure memory may move streamwish back
+    captured.length = 0;
+    const st = await plugin.resolve("sk|/serie/dark/temporada/1/capitulo/1");
+    assert.equal(new URL(captured[0]).host, "voe.sx"); // streamwish now last
+    assert.ok(!(st.alternatives || []).some((a) => /streamwish/i.test(a.label || "")));
+    assert.ok(!plugin.failedServers("sk").has("voe"));
+    assert.deepEqual(plugin.lastIfFailed(mixed, new Set(["streamwish"])).map((f) => f.server), ["vidhide", "voe", "streamwish", "streamwish"]);
+  } finally {
+    delete pages["https://serieskao.top/vidurl/tt5753856-1x01/"];
+  }
+});
+
+test("at most three lazy copies, best first", () => {
+  const many = Array.from({ length: 7 }, (_, i) => ({ lang: "LAT", server: `s${i}`, url: `https://h${i}.example/e` }));
+  const alts = plugin.alternativesOf([], { lang: "LAT", server: "x", url: "https://p.example/e" }, many, "r");
+  assert.deepEqual(alts.map((a) => a.ref), ["r#lat/s0", "r#lat/s1", "r#lat/s2"]);
 });

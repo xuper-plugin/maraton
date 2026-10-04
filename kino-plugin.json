@@ -1,7 +1,7 @@
 {
   "id": "maraton",
   "name": "Maratón",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "apiVersion": 6,
   "entry": "plugin.js",
   "description": "Series, anime y películas en latino, castellano o subtitulado. El video se busca en tu propio aparato, sin servidores intermedios.",
