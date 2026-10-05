@@ -1232,3 +1232,26 @@ test("an embed host that does not answer is skipped at once: no hidden page for 
     delete pages["https://morencius.com/embed/vr0ps5s4v6bw"];
   }
 });
+
+test("within() stops its timer once the race is decided: no kino.sleep keeps the call open", async () => {
+  const realSleep = globalThis.kino.sleep;
+  let pending = 0;
+  let slept = 0;
+  globalThis.kino.sleep = async (ms) => {
+    pending++;
+    slept += ms;
+    try { await realSleep(ms); } finally { pending--; }
+  };
+  try {
+    const t0 = Date.now();
+    const v = await plugin.within(Promise.resolve("ok"), 22000, null);
+    assert.equal(v, "ok");
+    await realSleep(600); // a cancelled timer ends within one 250 ms step
+    assert.equal(pending, 0);
+    assert.ok(slept <= 500, `slept ${slept} ms after an instant answer`);
+    assert.ok(Date.now() - t0 < 2000);
+    assert.equal(await plugin.within(new Promise(() => {}), 300, "late"), "late");
+  } finally {
+    globalThis.kino.sleep = realSleep;
+  }
+});

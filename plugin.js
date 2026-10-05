@@ -73,28 +73,40 @@ export const LIMITS = {
   breakerMs: 5 * 60 * 1000,
 };
 
-/** Waits [ms] with kino.sleep (at most 5 s per call: there is no setTimeout in Kino's engine). */
-async function sleepFor(ms) {
+/**
+ * Waits [ms] with kino.sleep (there is no setTimeout in Kino's engine). [cancel] stops it within one short step:
+ * Kino ends a call only once every pending kino.sleep is over, so a timer left running after its race was decided
+ * held the whole answer back (measured 2026-10-04 on a Redmi: the video found in 4.5 s, resolve answered at 22 s).
+ */
+async function sleepFor(ms, cancel = null) {
   let left = Math.max(0, Math.floor(ms));
-  while (left > 0) {
-    const step = Math.min(5000, left);
+  while (left > 0 && !(cancel && cancel.done)) {
+    const step = Math.min(cancel ? SLEEP_STEP_MS : 5000, left);
     await kino.sleep(step);
     left -= step;
   }
 }
 
+/** How late a cancelled timer may still keep a call open. */
+const SLEEP_STEP_MS = 250;
+
 /**
  * [p]'s value, or [fallback] once [ms] passed. A late rejection of [p] is handled here: one nobody listens to would
- * fail the whole call ("una llamada a Kino falló sin decir por qué").
+ * fail the whole call ("una llamada a Kino falló sin decir por qué"). The timer stops as soon as the race is decided.
  */
 export async function within(p, ms, fallback = null) {
   const guarded = Promise.resolve(p).then((v) => ({ v }), (e) => ({ e }));
   if (ms <= 0) return fallback;
-  const timer = sleepFor(ms).then(() => null, () => null);
-  const r = await Promise.race([guarded, timer]);
-  if (!r) return fallback;
-  if (r.e) throw r.e;
-  return r.v;
+  const cancel = { done: false };
+  const timer = sleepFor(ms, cancel).then(() => null, () => null);
+  try {
+    const r = await Promise.race([guarded, timer]);
+    if (!r) return fallback;
+    if (r.e) throw r.e;
+    return r.v;
+  } finally {
+    cancel.done = true;
+  }
 }
 
 // ---------- site health: a site that keeps failing rests a few minutes ----------
