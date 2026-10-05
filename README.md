@@ -1,11 +1,13 @@
-# Maratón
+# PelisYSeries
+
+(Antes se llamaba **Maratón**. La dirección del repo y el `id` del plugin siguen siendo `maraton`: quien ya lo tiene instalado recibe el nombre nuevo con la próxima actualización.)
 
 Series, anime y películas en español —latino, castellano o subtitulado— para ver de corrido. Todo pasa en tu
 propio aparato: el plugin lee los catálogos de los sitios y la página del reproductor de cada episodio; si esa página
 no trae la dirección del video, la abre en un navegador oculto y le pasa al reproductor el video que encuentra. No hay
 servidores intermedios.
 
-<img src="icon.png" width="96" alt="Maratón">
+<img src="icon.png" width="96" alt="PelisYSeries">
 
 ## Qué trae
 
@@ -52,15 +54,15 @@ puede leer páginas).
 
 ## Su propia página y sus géneros
 
-- **Página de Maratón**: un chip en Inicio (celular) o una entrada en la barra lateral (TV), con pestañas **Series**,
+- **Página de PelisYSeries**: un chip en Inicio (celular) o una entrada en la barra lateral (TV), con pestañas **Series**,
   **Anime**, **Películas** y **Géneros**, en los colores verdes del plugin.
-- **Categorías ▸ Maratón**: 22 géneros (Acción, Comedia, Drama, Terror, Animación, Doramas…), cada uno con lo que
+- **Categorías ▸ PelisYSeries**: 22 géneros (Acción, Comedia, Drama, Terror, Animación, Doramas…), cada uno con lo que
   tienen SeriesKao y AllCalidad mezclado, página por página. El dibujo de cada género es una imagen de uno de sus
   títulos que se comprobó que carga (si la primera no existe, la siguiente, luego un póster).
 
 ## Ajustes
 
-En **Ajustes ▸ Maratón** (o Plugins ▸ Maratón ▸ Configurar):
+En **Ajustes ▸ PelisYSeries** (o Plugins ▸ PelisYSeries ▸ Configurar):
 
 | Ajuste | Qué cambia |
 | --- | --- |
@@ -81,7 +83,7 @@ En **Ajustes ▸ Maratón** (o Plugins ▸ Maratón ▸ Configurar):
 
 ## Cómo está hecho (para quien escribe plugins)
 
-Maratón usa casi todo lo que ofrece el SDK de plugins de Kino; `plugin.js` está comentado para leerse de arriba abajo.
+PelisYSeries usa casi todo lo que ofrece el SDK de plugins de Kino; `plugin.js` está comentado para leerse de arriba abajo.
 
 - **Manifiesto** (`kino-plugin.json`): `apiVersion` 6, `"browser": "pages"` (captura de video y lectura de páginas), `hosts` exactos (nada de comodines), `streamHosts: "any"` porque
   el video vive en el CDN que elija cada reproductor, `browser: true`, `download`, `meta`, `categories` de mercado,

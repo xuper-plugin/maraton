@@ -1,4 +1,4 @@
-// Maratón: series and anime from Spanish-language streaming sites. Everything runs on the device: HTML is read with
+// PelisYSeries (formerly Maratón; id and telemetry areas stay "maraton"): series and anime from Spanish-language streaming sites. Everything runs on the device: HTML is read with
 // kino.fetch (regex, no kino.html, so the Node kit runs it too); each embed's player page is read for its own playlist
 // when it carries one (no hidden browser needed), and otherwise opened in Kino's hidden browser
 // (kino.browser.capture), which reports the video request the page makes.
@@ -918,7 +918,7 @@ export async function search(query) {
   const all = [].concat(...lists);
   // Every site failed: say so, instead of an empty "no results" that reads as "it does not exist".
   if (!all.length && failed === sites.length) {
-    throw kino.error("unavailable", "ningún sitio respondió", { userMessage: "Los sitios de Maratón no están respondiendo. Vuelve a intentar en un rato." });
+    throw kino.error("unavailable", "ningún sitio respondió", { userMessage: "Los sitios de PelisYSeries no están respondiendo. Vuelve a intentar en un rato." });
   }
   const ranked = kino.rank.filterRelevant(kino.rank.sortBySimilarity(all, q, (it) => it.title), q, (it) => it.title).slice(0, 60);
   kino.log(`search: ${all.length} found, ${ranked.length} kept${ranked.length ? `, best ${ranked[0].ref}` : ""}`);
@@ -1043,7 +1043,7 @@ async function rowsOf(groups, sites, deadlineAt) {
 
 /** No rows at all and nothing saved: a sentence instead of an empty Home row. */
 function nothingAnswered() {
-  return kino.error("unavailable", "ningún sitio respondió", { userMessage: "Los sitios de Maratón no están respondiendo. Vuelve a intentar en un rato." });
+  return kino.error("unavailable", "ningún sitio respondió", { userMessage: "Los sitios de PelisYSeries no están respondiendo. Vuelve a intentar en un rato." });
 }
 
 export async function home() {
@@ -1180,7 +1180,7 @@ async function lookUpArt(g, sites, deadlineAt) {
 }
 
 /**
- * The tiles of the active sites (Categorías ▸ Maratón), each opening `browse("genre|<key>")`, at most 24 (SDK cap),
+ * The tiles of the active sites (Categorías ▸ PelisYSeries), each opening `browse("genre|<key>")`, at most 24 (SDK cap),
  * each with `art` when one is known. Never slower than [LIMITS.artMs] and never failing because of a picture.
  */
 export async function categories() {
@@ -1254,7 +1254,7 @@ export function heroOf(rows) {
   const featured = items.find((i) => i.backdrop) || items.find((i) => i.poster);
   if (!featured) return null;
   const lang = ({ lat: "latino", esp: "castellano", sub: "versión subtitulada" })[preferredLang()];
-  const text = featured.overview || `Para ver en ${lang}. Cambia el idioma, los sitios y el servidor en Ajustes ▸ Maratón.`;
+  const text = featured.overview || `Para ver en ${lang}. Cambia el idioma, los sitios y el servidor en Ajustes ▸ PelisYSeries.`;
   return { title: featured.title, text: text.slice(0, 300), image: featured.backdrop || featured.poster };
 }
 

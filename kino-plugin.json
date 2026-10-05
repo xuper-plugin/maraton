@@ -1,11 +1,11 @@
 {
   "id": "maraton",
-  "name": "Maratón",
-  "version": "0.6.4",
+  "name": "PelisYSeries",
+  "version": "0.6.5",
   "apiVersion": 6,
   "entry": "plugin.js",
   "description": "Series, anime y películas en latino, castellano o subtitulado. El video se busca en tu propio aparato, sin servidores intermedios.",
-  "author": "Equipo Maratón",
+  "author": "Equipo PelisYSeries",
   "hosts": [
     "serieskao.top",
     "morencius.com",
@@ -155,7 +155,7 @@
   "icon": "icon.png",
   "homepage": "https://github.com/xuper-plugin/maraton",
   "section": {
-    "label": "Maratón"
+    "label": "PelisYSeries"
   },
   "theme": {
     "accent": "#3FB08F",
@@ -167,6 +167,6 @@
   "telemetry": true,
   "signature": {
     "authorKey": "6693946bd5c56196960959c4b9665fad5094374bcb85ddb282f8bf762c835263",
-    "value": "a3d04f0d8a3604f3887814cb8590ebce7c6b53f1225b29ca4159e4a09f398dfe80be84ed862c5c739f992320d43155ef01f2df795b474f62858409f218287901"
+    "value": "56da5bdeb797e6b6ede1d10dcde3e10ac1862b5e0b4b386bd14e424ceb1e9ea566ec249d53f0e0db6d8a642f09a4b0bfea75e8cebcd0a505d3d533d146f30705"
   }
 }
