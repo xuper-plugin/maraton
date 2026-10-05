@@ -1,0 +1,59 @@
+{
+ "error": false,
+ "message": "",
+ "data": {
+  "embeds": [],
+  "downloads": [
+   {
+    "url": "magnet:?xt=urn:btih:0000000000000000000000000000000000000000&dn=sample",
+    "server": "Utorrent",
+    "lang": "Latino - Inglés",
+    "quality": "Dual 1080p",
+    "size": null,
+    "subtitle": 0,
+    "format": null,
+    "resolution": null
+   },
+   {
+    "url": "https://downloads.example/file/1",
+    "server": "mediafire",
+    "lang": "Latino - Inglés",
+    "quality": "Dual 1080p",
+    "size": null,
+    "subtitle": 0,
+    "format": null,
+    "resolution": null
+   },
+   {
+    "url": "https://downloads.example/file/2",
+    "server": "mega",
+    "lang": "Latino - Inglés",
+    "quality": "Dual 1080p",
+    "size": null,
+    "subtitle": 0,
+    "format": null,
+    "resolution": null
+   },
+   {
+    "url": "https://downloads.example/file/3",
+    "server": "megaup",
+    "lang": "Latino - Inglés",
+    "quality": "Dual 1080p",
+    "size": null,
+    "subtitle": 0,
+    "format": null,
+    "resolution": null
+   },
+   {
+    "url": "https://downloads.example/file/4",
+    "server": "1fichier",
+    "lang": "Latino - Inglés",
+    "quality": "Dual 1080p",
+    "size": null,
+    "subtitle": 0,
+    "format": null,
+    "resolution": null
+   }
+  ]
+ }
+}

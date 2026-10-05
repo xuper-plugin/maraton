@@ -18,8 +18,14 @@ const pages = {
 const captured = [];
 let captureAnswer = async () => ({ media: [{ url: "https://cdn.example/master.m3u8", headers: { Referer: "https://x/" } }], subtitles: [], finalUrl: "" });
 const kinoError = (code, message, options) => Object.assign(new Error(message), { code, ...(options || {}) });
+// Pictures (genre art) load unless listed here; a HEAD is all the plugin asks of them.
+const missingImages = new Set();
 globalThis.kino = {
-  fetch: async (url) => {
+  fetch: async (url, init = {}) => {
+    if (init.method === "HEAD" && /\.(webp|jpe?g|png)$/.test(url)) {
+      const ok = !missingImages.has(url);
+      return { ok, status: ok ? 200 : 404, headers: { "content-type": ok ? "image/webp" : "text/html; charset=UTF-8" }, text: () => "" };
+    }
     const body = pages[url];
     return { ok: body !== undefined, status: body === undefined ? 404 : 200, text: () => body || "", json: () => JSON.parse(body) };
   },
@@ -50,7 +56,7 @@ const store = new Map();
 const ttls = new Map();
 const config = {};
 // SoloLatino is off by default in these tests (its own tests switch it on): the older tests are about two sites.
-beforeEach(() => { plugin.forgetPages(); reports.length = 0; store.clear(); ttls.clear(); for (const k of Object.keys(config)) delete config[k]; config.useSololatino = false; });
+beforeEach(() => { missingImages.clear(); plugin.forgetPages(); reports.length = 0; store.clear(); ttls.clear(); for (const k of Object.keys(config)) delete config[k]; config.useSololatino = false; });
 const plugin = await import("../plugin.js");
 
 test("search reads serieskao's cards and survives the other site failing", async () => {
@@ -463,7 +469,7 @@ test("a genre page interleaves both sites; one site missing still pages; page 1 
     const p = await plugin.browse("genre|accion", null);
     assert.equal(p.next, "2");
     assert.deepEqual(p.items.slice(0, 4).map((i) => i.ref.slice(0, 3)), ["sk|", "ac|", "sk|", "ac|"]);
-    assert.match(JSON.parse(store.get("art:accion")).art, /^https:\/\/allcalidad\.re\/wp-content\/uploads\/backdrops\//);
+    assert.match(JSON.parse(store.get("art2:accion")).art, /^https:\/\/allcalidad\.re\/wp-content\/uploads\/backdrops\//);
     delete pages[ACG];
     const skOnly = await plugin.browse("genre|accion", null);
     assert.ok(skOnly.items.length > 0 && skOnly.items.every((i) => i.ref.startsWith("sk|")));
@@ -1177,22 +1183,22 @@ test("embed69: a title it does not list is quiet; a changed page is reported; so
 });
 
 test("categories: art from the saved genres at once; the missing ones looked up within ~3 s; a hanging site never slows the tiles", async () => {
-  store.set("art:drama", JSON.stringify({ art: "https://allcalidad.re/wp-content/uploads/backdrops/d.webp" }));
+  store.set("art2:drama", JSON.stringify({ art: "https://allcalidad.re/wp-content/uploads/backdrops/d.webp" }));
   pages[ACG] = fixture("ac2-genre-drama-1.json");
   const restore = shrink({ artMs: 200 });
   const saved = kino.fetch;
   try {
-    // accion's lookup answers (perPage 4 is asked for: the URL differs from the browse one)
-    pages[`${ACAPI}/listing?tax=genres&term=accion&page=1&post_type=movies,tvshows,animes&posts_per_page=4`] = fixture("ac2-genre-drama-1.json");
+    // accion's lookup answers (perPage 8 is asked for: the URL differs from the browse one)
+    pages[`${ACAPI}/listing?tax=genres&term=accion&page=1&post_type=movies,tvshows,animes&posts_per_page=8`] = fixture("ac2-genre-drama-1.json");
     const tiles = await plugin.categories();
     assert.equal(tiles.length, 22);
     assert.equal(tiles.find((t) => t.id === "genre-drama").art, "https://allcalidad.re/wp-content/uploads/backdrops/d.webp");
     assert.match(tiles.find((t) => t.id === "genre-accion").art, /^https:\/\/allcalidad\.re\/wp-content\/uploads\/backdrops\//);
-    assert.equal(tiles.find((t) => t.id === "genre-dorama").art, undefined); // serieskao only: no lookup
-    assert.equal(ttls.get("art:accion"), 24 * 3600 * 1000);
+    assert.equal(tiles.find((t) => t.id === "genre-dorama").art, undefined); // serieskao only, and its page did not answer
+    assert.equal(ttls.get("art2:accion"), 24 * 3600 * 1000);
     // allcalidad hangs: the tiles come back in time, with the art already known and none for the rest.
     store.clear();
-    store.set("art:drama", JSON.stringify({ art: "https://allcalidad.re/wp-content/uploads/backdrops/d.webp" }));
+    store.set("art2:drama", JSON.stringify({ art: "https://allcalidad.re/wp-content/uploads/backdrops/d.webp" }));
     kino.fetch = async () => never();
     const t0 = Date.now();
     const cold = await plugin.categories();
@@ -1203,7 +1209,7 @@ test("categories: art from the saved genres at once; the missing ones looked up 
     restore();
     kino.fetch = saved;
     delete pages[ACG];
-    delete pages[`${ACAPI}/listing?tax=genres&term=accion&page=1&post_type=movies,tvshows,animes&posts_per_page=4`];
+    delete pages[`${ACAPI}/listing?tax=genres&term=accion&page=1&post_type=movies,tvshows,animes&posts_per_page=8`];
   }
 });
 
@@ -1253,5 +1259,251 @@ test("within() stops its timer once the race is decided: no kino.sleep keeps the
     assert.equal(await plugin.within(new Promise(() => {}), 300, "late"), "late");
   } finally {
     globalThis.kino.sleep = realSleep;
+  }
+});
+
+// ---------- 0.6.4: the same title on another site, and genre art that loads ----------
+
+const SKB = "https://serieskao.top";
+const defaultCapture = async () => ({ media: [{ url: "https://cdn.example/master.m3u8", headers: { Referer: "https://x/" } }], subtitles: [], finalUrl: "" });
+
+test("pickMatch: the same normalized title and kind, years within one, exactly one title; anything else is no match", () => {
+  const items = [
+    { ref: "sk|/pelicula/matrix", title: "Matrix", kind: "movie", year: "1999" },
+    { ref: "sk|/pelicula/matrix-recargado", title: "Matrix Recargado", kind: "movie", year: "2003" },
+    { ref: "sk|/serie/matrix", title: "Matrix", kind: "series", year: "1993" },
+  ];
+  assert.equal(plugin.pickMatch({ kind: "movie", names: ["Matrix"], year: "1999" }, items).ref, "sk|/pelicula/matrix");
+  assert.equal(plugin.pickMatch({ kind: "movie", names: ["MATRIX"], year: "2000" }, items).ref, "sk|/pelicula/matrix"); // ±1
+  assert.equal(plugin.pickMatch({ kind: "movie", names: ["Matrix"], year: "2003" }, items), null); // another film's year
+  assert.equal(plugin.pickMatch({ kind: "movie", names: ["Matrix"], year: "" }, items).ref, "sk|/pelicula/matrix");
+  assert.equal(plugin.pickMatch({ kind: "episode", names: ["Matrix"], year: "" }, items).ref, "sk|/serie/matrix");
+  assert.equal(plugin.pickMatch({ kind: "movie", names: ["Matriz"], year: "1999" }, items), null); // close is not equal
+  // An original title matches too; accents and punctuation do not count.
+  assert.equal(plugin.pickMatch({ kind: "movie", names: ["La desaparición", "The Matrix"], year: "1999" },
+    [{ ref: "ac|movies/1/x", title: "Matrix", originalTitle: "The Matrix", kind: "movie", year: "1999" }]).ref, "ac|movies/1/x");
+  // Two remakes with the same name and no year to tell them apart: no match. A year picks the right one.
+  const remakes = [
+    { ref: "sk|/serie/shogun", title: "Shōgun", kind: "series", year: "2024" },
+    { ref: "sk|/serie/shogun-1980", title: "Shogun", kind: "series", year: "1980" },
+  ];
+  assert.equal(plugin.pickMatch({ kind: "episode", names: ["Shogun"], year: "" }, remakes), null);
+  assert.equal(plugin.pickMatch({ kind: "episode", names: ["Shogun"], year: "2024" }, remakes).ref, "sk|/serie/shogun");
+});
+
+test("refShape and pageInfo: kind, season/episode and the title from the ref's own page or slug", () => {
+  assert.deepEqual(plugin.refShape("sk|/serie/dark/temporada/3/capitulo/1"),
+    { siteId: "sk", kind: "episode", season: 3, episode: 1, seriesPath: "/serie/dark", slugTitle: "dark", slugYear: "" });
+  assert.deepEqual(plugin.refShape("sk|/pelicula/marea-baja-jxVi2n"), { siteId: "sk", kind: "movie", slugTitle: "marea baja", slugYear: "" });
+  assert.deepEqual(plugin.refShape("ac|movies/70272/la-pandilla-newton-1998"),
+    { siteId: "ac", kind: "movie", acType: "movies", slug: "la-pandilla-newton-1998", slugTitle: "la pandilla newton", slugYear: "1998" });
+  assert.equal(plugin.refShape("sl|/serie/dark/temporada-2/episodio-4").season, 2);
+  assert.equal(plugin.refShape("ac|ep/41663/70523/1/1").tmdb, "70523");
+  assert.equal(plugin.refShape("ac|tvshows/41641/dark-2017"), null); // a show, not something that plays
+  assert.deepEqual(plugin.pageInfo(fixture("sk-ep-dark-1x01.html"), "sk", "episode"), { names: ["Dark"], year: "2017" });
+  assert.deepEqual(plugin.pageInfo(fixture("sk-pelicula-matrix.html"), "sk", "movie"), { names: ["Matrix"], year: "1999" });
+  const sl = plugin.pageInfo(fixture("sl-pelicula.html"), "sl", "movie");
+  assert.equal(sl.year, "2025");
+  assert.ok(sl.names.includes("La desaparición de Josef Mengele") && sl.names.includes("The Disappearance of Josef Mengele"));
+  // An episode page's date is the episode's own: never taken as the show's year.
+  assert.deepEqual(plugin.pageInfo(fixture("sl-ep-dark-1x01.html"), "sl", "episode"), { names: ["Dark"], year: "" });
+  assert.equal(plugin.acShowName([{ title: "Dark: Temporada 1 Episodio 2" }]), "Dark");
+});
+
+test("allcalidad has no embeds (La Pandilla Newton, measured): the same movie is found on serieskao and plays there", async () => {
+  // Matrix stands in for a title on both sites; allcalidad answers it the way it answered post 70272.
+  const own = `${ACAPI}/player?post_id=27621&_any=1`;
+  const single = `${ACAPI}/single?post_name=matrix-1999&post_type=movies`;
+  pages[own] = fixture("ac2-player-70272-noembeds.json");
+  pages[single] = fixture("ac2-single-matrix.json");
+  pages[`${SKB}/search?s=Matrix`] = fixture("sk-search-matrix.html");
+  pages[`${SKB}/pelicula/matrix`] = fixture("sk-pelicula-matrix.html");
+  captured.length = 0;
+  captureAnswer = defaultCapture;
+  try {
+    const st = await plugin.resolve("ac|movies/27621/matrix-1999");
+    assert.equal(st.url, "https://cdn.example/master.m3u8");
+    // serieskao's own movie page was opened (its player page is on the site itself), never another Matrix.
+    assert.deepEqual(captured, [`${SKB}/pelicula/matrix`]);
+    assert.ok(reports.some((r) => r[0] === "maraton:fallback" && r[1] === "ok" && r.includes("from=ac") && r.includes("to=sk") && r.includes("why=no_servers")));
+    assert.ok(!reports.some((r) => r[0] === "maraton:resolve"));
+    // Kept under the ref Kino asked for: the next play does not search again.
+    captured.length = 0;
+    assert.equal((await plugin.resolve("ac|movies/27621/matrix-1999")).url, st.url);
+    assert.deepEqual(captured, []);
+  } finally {
+    for (const u of [own, single, `${SKB}/search?s=Matrix`, `${SKB}/pelicula/matrix`]) delete pages[u];
+  }
+});
+
+test("no confident match anywhere: a clear sentence, nothing played, no other title opened", async () => {
+  config.useSololatino = true;
+  const own = `${ACAPI}/player?post_id=70272&_any=1`;
+  const single = `${ACAPI}/single?post_name=la-pandilla-newton-1998&post_type=movies`;
+  const asked = [];
+  const saved = kino.fetch;
+  pages[own] = fixture("ac2-player-70272-noembeds.json");
+  pages[single] = fixture("ac2-single-newton.json");
+  pages[`${SKB}/search?s=La%20Pandilla%20Newton`] = fixture("sk-search-none.html");
+  pages[`${SKB}/search?s=The%20Newton%20Boys`] = fixture("sk-search-none.html");
+  pages[`${SLB}/api/search/suggest?q=La%20Pandilla%20Newton`] = fixture("sl-suggest-none.json");
+  pages[`${SLB}/api/search/suggest?q=The%20Newton%20Boys`] = fixture("sl-suggest-none.json");
+  // serieskao's search for the original title finds another film with a close name: still no match.
+  pages[`${SKB}/search?s=The%20Newton%20Boys`] = fixture("sk-search-matrix.html");
+  kino.fetch = async (url, init) => { asked.push(url); return saved(url, init); };
+  captured.length = 0;
+  try {
+    await assert.rejects(plugin.resolve("ac|movies/70272/la-pandilla-newton-1998"),
+      (e) => e.code === "not_found" && e.userMessage === "AllCalidad no tiene video para este título y no lo encontramos en los otros sitios. Prueba otra fuente.");
+    assert.deepEqual(captured, []);
+    assert.ok(asked.includes(`${SKB}/search?s=La%20Pandilla%20Newton`) && asked.includes(`${SKB}/search?s=The%20Newton%20Boys`));
+    assert.ok(!asked.some((u) => u.startsWith(`${SKB}/pelicula/`)));
+    const r = reports.find((x) => x[0] === "maraton:resolve");
+    assert.deepEqual(r.slice(0, 5), ["maraton:resolve", "no_servers", "site=ac", "servers=0", "fb=no_match"]);
+  } finally {
+    kino.fetch = saved;
+    for (const u of [own, single, `${SKB}/search?s=La%20Pandilla%20Newton`, `${SKB}/search?s=The%20Newton%20Boys`,
+      `${SLB}/api/search/suggest?q=La%20Pandilla%20Newton`, `${SLB}/api/search/suggest?q=The%20Newton%20Boys`]) delete pages[u];
+  }
+});
+
+test("episode fallback: an allcalidad episode with no video plays the same season and episode on serieskao", async () => {
+  const list = `${ACAPI}/episodes?post_id=41641`;
+  const own = `${ACAPI}/player?post_id=41663&_any=1`;
+  pages[list] = fixture("ac2-episodes-41641.json");
+  pages[own] = fixture("ac2-player-70272-noembeds.json");
+  pages[`${SKB}/search?s=Dark`] = fixture("sk-search-dark.html");
+  pages[`${SKB}/vidurl/tt5753856-1x01/`] = fixture("sk-vidurl-embed69.html");
+  captureAnswer = defaultCapture;
+  captured.length = 0;
+  try {
+    // Listing the show keeps its name for its episode refs, which carry only TMDB ids (/single is not answered here:
+    // the name comes from the episodes' own titles).
+    await plugin.episodes("ac|tvshows/41641/dark-2017");
+    assert.deepEqual(JSON.parse(store.get("show:ac:70523")), { title: "Dark" });
+    const st = await plugin.resolve("ac|ep/41663/70523/1/1");
+    assert.equal(st.url, "https://cdn.example/master.m3u8");
+    // The episode's own servers on serieskao (embed69), 1x01 and nothing else.
+    assert.equal(new URL(captured[0]).host, "hglink.to");
+    assert.ok(st.alternatives.every((a) => !a.ref || a.ref.startsWith("sk|/serie/dark/temporada/1/capitulo/1#")));
+    assert.ok(reports.some((r) => r[0] === "maraton:fallback" && r.includes("to=sk")));
+    // Without the kept name there is nothing safe to look for: the old sentence, and no search at all.
+    store.clear();
+    reports.length = 0;
+    captured.length = 0;
+    await assert.rejects(plugin.resolve("ac|ep/41663/70523/1/1"), (e) => e.code === "not_found" && /Prueba otra fuente/.test(e.userMessage));
+    assert.deepEqual(captured, []);
+    assert.ok(reports.some((r) => r[0] === "maraton:resolve" && r.includes("fb=no_title")));
+  } finally {
+    for (const u of [list, own, `${SKB}/search?s=Dark`, `${SKB}/vidurl/tt5753856-1x01/`]) delete pages[u];
+  }
+});
+
+test("episode fallback onto SoloLatino: same season and episode, never on a show it numbers absolutely", async () => {
+  config.useSololatino = true;
+  config.useSerieskao = false;
+  const saved = kino.fetch;
+  store.set("show:ac:70523", JSON.stringify({ title: "Dark", year: "2017" }));
+  store.set("show:ac:46260", JSON.stringify({ title: "Naruto", year: "2002" }));
+  pages[`${ACAPI}/player?post_id=41663&_any=1`] = fixture("ac2-player-70272-noembeds.json");
+  pages[`${ACAPI}/player?post_id=9&_any=1`] = fixture("ac2-player-70272-noembeds.json");
+  pages[`${SLB}/serie/dark`] = fixture("sl-serie-dark.html");
+  pages[`${SLB}/serie/naruto`] = fixture("sl-serie-naruto.html");
+  pages[`${SLB}/serie/dark/temporada-1/episodio-1`] = fixture("sl-ep-dark-1x01.html");
+  const asked = [];
+  kino.fetch = async (url, init) => {
+    asked.push(url);
+    if (url.startsWith(`${SLB}/api/search/suggest`)) {
+      const q = new URL(url).searchParams.get("q");
+      const all = [{ type: "series", title: "Dark", year: 2017, url: `${SLB}/serie/dark` }, { type: "anime", title: "Naruto", year: 2002, url: `${SLB}/serie/naruto` }];
+      const body = JSON.stringify(all.filter((x) => x.title === q));
+      return { ok: true, status: 200, text: () => body, json: () => JSON.parse(body) };
+    }
+    return saved(url, init);
+  };
+  captureAnswer = defaultCapture;
+  captured.length = 0;
+  try {
+    const st = await plugin.resolve("ac|ep/41663/70523/1/1");
+    assert.equal(st.url, "https://cdn.example/master.m3u8");
+    // No embed69 player here: SoloLatino's own episode page is the last resort, and it is 1x01's.
+    assert.deepEqual(captured, [`${SLB}/serie/dark/temporada-1/episodio-1`]);
+    // Naruto 2x01 (TMDB numbering) is not "temporada-2/episodio-1" on SoloLatino, which counts on from 53.
+    captured.length = 0;
+    await assert.rejects(plugin.resolve("ac|ep/9/46260/2/1"), (e) => e.code === "not_found");
+    assert.deepEqual(captured, []);
+    assert.ok(!asked.some((u) => /\/serie\/naruto\/temporada-/.test(u)));
+  } finally {
+    kino.fetch = saved;
+    for (const u of [`${ACAPI}/player?post_id=41663&_any=1`, `${ACAPI}/player?post_id=9&_any=1`, `${SLB}/serie/dark`, `${SLB}/serie/naruto`, `${SLB}/serie/dark/temporada-1/episodio-1`]) delete pages[u];
+  }
+});
+
+test("a copy picked from the Servidor list never falls back to another site", async () => {
+  pages[`${ACAPI}/player?post_id=27621&_any=1`] = fixture("ac2-player-27621.json");
+  const asked = [];
+  const saved = kino.fetch;
+  kino.fetch = async (url, init) => { asked.push(url); return saved(url, init); };
+  captureAnswer = async () => { throw kinoError("timeout", "no video"); };
+  try {
+    await assert.rejects(plugin.resolve("ac|movies/27621/matrix-1999#lat/vimeos"), (e) => e.code === "not_found");
+    assert.ok(!asked.some((u) => u.includes("/search") || u.includes("/single")));
+  } finally {
+    kino.fetch = saved;
+    captureAnswer = defaultCapture;
+    delete pages[`${ACAPI}/player?post_id=27621&_any=1`];
+  }
+});
+
+test("Comedia's art: a backdrop that does not load is skipped, then posters, then serieskao's genre page; only checked art is kept", async () => {
+  const restore = shrink({ artMs: 2000 });
+  const comedia = `${ACAPI}/listing?tax=genres&term=comedia&page=1&post_type=movies,tvshows,animes&posts_per_page=8`;
+  pages[comedia] = fixture("ac2-genre-drama-1.json");
+  const items = JSON.parse(fixture("ac2-genre-drama-1.json")).data.posts;
+  const up = (p) => "https://allcalidad.re/wp-content/uploads" + p;
+  const saved = kino.fetch;
+  try {
+    // 1. The newest title's backdrop answers 404 (as allcalidad does for some): the next title's backdrop.
+    missingImages.add(up(items[0].images.backdrop));
+    let tiles = await plugin.categories();
+    assert.equal(tiles.find((t) => t.id === "genre-comedia").art, up(items[1].images.backdrop));
+    assert.equal(JSON.parse(store.get("art2:comedia")).art, up(items[1].images.backdrop));
+    // 2. The first three backdrops all missing: the first poster.
+    store.clear();
+    for (const p of items.slice(0, 3)) missingImages.add(up(p.images.backdrop));
+    tiles = await plugin.categories();
+    assert.equal(tiles.find((t) => t.id === "genre-comedia").art, up(items[0].images.poster));
+    // 3. allcalidad does not answer: serieskao's genre page, its first poster that loads.
+    store.clear();
+    delete pages[comedia];
+    pages[`${SKB}/generos/comedia?page=1`] = fixture("sk-generos-accion-2.html");
+    tiles = await plugin.categories();
+    const art = tiles.find((t) => t.id === "genre-comedia").art;
+    assert.match(art, /^https:\/\/image\.tmdb\.org\//);
+    assert.equal(JSON.parse(store.get("art2:comedia")).art, art);
+    // 4. A picture that cannot be checked (the HEAD fails on the network) is shown but never kept.
+    store.clear();
+    pages[comedia] = fixture("ac2-genre-drama-1.json");
+    missingImages.clear();
+    kino.fetch = async (url, init = {}) => {
+      if (init.method === "HEAD") throw Object.assign(new Error("network"), { code: "network" });
+      return saved(url, init);
+    };
+    tiles = await plugin.categories();
+    assert.equal(tiles.find((t) => t.id === "genre-comedia").art, up(items[0].images.backdrop));
+    assert.equal(store.get("art2:comedia"), undefined);
+    // 0.6.3's unchecked entries are not read any more.
+    kino.fetch = saved;
+    store.clear();
+    store.set("art:comedia", JSON.stringify({ art: "https://allcalidad.re/wp-content/uploads/backdrops/gone.webp" }));
+    delete pages[comedia];
+    delete pages[`${SKB}/generos/comedia?page=1`];
+    tiles = await plugin.categories();
+    assert.equal(tiles.find((t) => t.id === "genre-comedia").art, undefined);
+  } finally {
+    restore();
+    kino.fetch = saved;
+    delete pages[comedia];
+    delete pages[`${SKB}/generos/comedia?page=1`];
   }
 });

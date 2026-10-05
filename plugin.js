@@ -323,9 +323,24 @@ async function acEpisodes(ref) {
   const base = acItem(info) || {};
   for (const k of ["title", "poster", "backdrop", "overview", "year", "genres"]) if (base[k]) series[k] = base[k];
   if (tmdb) series.ids = { tmdb: parseInt(tmdb, 10) };
+  // An episode ref carries only the show's TMDB id: its name is kept here, for resolve's search on the other sites.
+  const name = base.title || acShowName(list);
+  if (tmdb && name) storageSet(showKey(tmdb), { title: name, ...(base.originalTitle ? { originalTitle: base.originalTitle } : {}), ...(base.year ? { year: base.year } : {}) }, IMDB_MEMORY_MS);
   kino.log(`episodes ${ref}: ${episodes.length}${tmdb ? ", TMDB id known" : ""}`);
   return { series, episodes };
 }
+
+/** "Dark: Temporada 1 Episodio 2" -> "Dark": the show's name as its episodes' titles carry it (when /single fails). */
+export function acShowName(list) {
+  for (const e of Array.isArray(list) ? list : []) {
+    const m = /^(.+?):\s*Temporada\s*\d+\s*Episodio\s*\d+\s*$/i.exec(decode(String((e && e.title) || "")).trim());
+    if (m) return m[1].trim().slice(0, 200);
+  }
+  return "";
+}
+
+/** What allcalidad's episode refs need to be found elsewhere: the show's name, per TMDB id. */
+const showKey = (tmdb) => "show:ac:" + tmdb;
 
 /** The videoapp page for a TMDB title: movie, or a show's episode. */
 export function videoappUrl(kind, tmdb, season, episode) {
@@ -696,7 +711,7 @@ async function slServers(ref) {
   }));
   const out = [];
   for (const f of [].concat(...lists)) if (!out.some((o) => o.url === f.url)) out.push(f);
-  return { servers: out, pages: out.length ? [] : [pageUrl] };
+  return { servers: out, pages: out.length ? [] : [pageUrl], html };
 }
 
 // ---------- telemetry ----------
@@ -705,7 +720,8 @@ async function slServers(ref) {
 // what WORKED but degraded, by area: maraton:site (a site down, a 5xx, Cloudflare), maraton:page (a page read blocked),
 // maraton:embed69 (its page changed or could not be read), maraton:extract (an embed's page no longer carries its
 // playlist), maraton:capture (a hidden page showed no video, per server), maraton:browser (a device without a usable
-// WebView), maraton:retry (Kino came back because the stream was refused) and maraton:resolve (no copy at all, and why).
+// WebView), maraton:retry (Kino came back because the stream was refused), maraton:fallback (the ref's own site had no
+// video and another site played the same title) and maraton:resolve (no copy at all, why, and how the fallback ended).
 // Only codes and counts go in a report — our own site and server names, a status number, milliseconds — never a URL, a
 // title or anything the person typed. Kino scrubs lines too, and allows one report per area an hour and 3 per plugin
 // until it restarts, so the rare and telling ones are the ones reported.
@@ -1083,15 +1099,84 @@ export const GENRES = [
 
 const genreByKey = (key) => GENRES.find((g) => g.key === key);
 
-// A genre tile's picture: a real title of that genre, its wide backdrop first. Kept a day per genre; refreshed whenever
-// the genre's first page is read anyway; looked up for the missing ones in categories() within [LIMITS.artMs].
+// A genre tile's picture: a real title of that genre, its wide backdrop first. Kept a day per genre; set when the
+// genre's first page is read and none is kept; looked up for the missing ones in categories() within [LIMITS.artMs].
+//
+// Only a picture that was checked to load is kept (0.6.4). allcalidad lists backdrops that do not exist (measured
+// 2026-10-04: two of Terror's first four backdrops answer 404 with an HTML page), and its newest title of a genre
+// changes several times a day; 0.6.3 kept the first backdrop unchecked for 24 h, so one missing file left a tile
+// blank for a whole day (Comedia on the Redmi). Now the backdrops are checked in order, then the posters, then
+// serieskao's genre page; a candidate that cannot be checked in time is shown but not kept.
 const ART_MS = 24 * 3600 * 1000;
-const artKey = (key) => "art:" + key;
-const artOf = (items) => { const i = (items || []).find((x) => x.backdrop) || (items || []).find((x) => x.poster); return i ? i.backdrop || i.poster : ""; };
+/** "art2:": 0.6.3's unchecked "art:" entries are never read again. */
+const artKey = (key) => "art2:" + key;
+/** How many candidates one genre may check, one after another (each a HEAD, about half a second). */
+const ART_TRIES = 5;
 
-function keepArt(key, items) {
-  const art = artOf(items);
-  if (/^https:\/\//.test(art)) storageSet(artKey(key), { art }, ART_MS);
+/**
+ * A genre's picture candidates in order: the first three titles' wide backdrops, then every poster (a title whose
+ * backdrop is missing usually has its poster: The Veil, measured), then the other backdrops; https only, each once.
+ */
+export function artCandidates(items) {
+  const list = items || [];
+  const out = [];
+  for (const u of [...list.slice(0, 3).map((x) => x.backdrop), ...list.map((x) => x.poster), ...list.slice(3).map((x) => x.backdrop)]) {
+    if (/^https:\/\//.test(u || "") && !out.includes(u)) out.push(u);
+  }
+  return out;
+}
+
+/** true: the picture loads; false: it does not (404, an HTML page); null: it could not be checked in time. */
+async function artLoads(url, deadlineAt) {
+  const ms = Math.min(2500, deadlineAt - Date.now());
+  if (ms < 100) return null;
+  try {
+    const r = await kino.fetch(url, { method: "HEAD", headers: { "User-Agent": UA, Accept: "image/*" }, timeoutMs: ms });
+    const h = r.headers || {};
+    const type = String(h["content-type"] || h["Content-Type"] || "");
+    return !!r.ok && (!type || /^image\//i.test(type));
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * The first candidate of [items] that loads: `{ art, sure }`, `sure` false when it could not be checked (shown, never
+ * kept). `{ art: "" }` when every candidate tried is missing.
+ */
+export async function pickArt(items, deadlineAt) {
+  const candidates = artCandidates(items).slice(0, ART_TRIES);
+  for (const url of candidates) {
+    const ok = await artLoads(url, deadlineAt);
+    if (ok) return { art: url, sure: true };
+    if (ok === null) return { art: url, sure: false };
+  }
+  return { art: "", sure: false };
+}
+
+/** Checks and keeps a genre's picture; the picture found ("" for none). */
+async function refreshArt(key, items, deadlineAt) {
+  const { art, sure } = await pickArt(items, deadlineAt);
+  if (sure) storageSet(artKey(key), { art }, ART_MS);
+  return art;
+}
+
+/** One genre's picture from allcalidad's first titles, else from serieskao's genre page (its posters). */
+async function lookUpArt(g, sites, deadlineAt) {
+  if (g.ac && sites.includes(AC.id) && !siteResting(AC.id)) {
+    try {
+      const art = await refreshArt(g.key, await acGenre(g.ac, 1, { perPage: 8 }), deadlineAt);
+      if (art) return art;
+      kino.log(`art ${g.key}: no allcalidad picture loads`);
+    } catch (e) {
+      kino.log(`art ${g.key}: allcalidad ${e.code || ""}`);
+    }
+  }
+  if (g.sk && sites.includes("sk") && !siteResting("sk") && deadlineAt - Date.now() > 800) {
+    const html = await page(SITES.sk, `/generos/${g.sk}?page=1`, { list: true });
+    return refreshArt(g.key, cards("sk", html), deadlineAt);
+  }
+  return "";
 }
 
 /**
@@ -1103,11 +1188,12 @@ export async function categories() {
   const genres = GENRES.filter((g) => sites.some((id) => g[id])).slice(0, 24);
   const art = {};
   for (const g of genres) art[g.key] = (storageGet(artKey(g.key)) || {}).art || "";
-  const missing = genres.filter((g) => !art[g.key] && g.ac && sites.includes(AC.id));
-  if (missing.length && !siteResting(AC.id)) {
+  const missing = genres.filter((g) => !art[g.key]);
+  if (missing.length) {
     const t0 = Date.now();
-    const lookups = Promise.all(missing.map((g) => acGenre(g.ac, 1, { perPage: 4 })
-      .then((items) => { keepArt(g.key, items); art[g.key] = artOf(items); })
+    const deadlineAt = t0 + LIMITS.artMs;
+    const lookups = Promise.all(missing.map((g) => lookUpArt(g, sites, deadlineAt)
+      .then((found) => { art[g.key] = found || art[g.key]; })
       .catch((e) => kino.log(`art ${g.key}: ${e.code || ""}`))));
     const done = await within(lookups, LIMITS.artMs, null).catch(() => null);
     kino.log(`categories: art for ${missing.filter((g) => art[g.key]).length}/${missing.length} missing genre(s) in ${Date.now() - t0} ms${done === null ? " (cut)" : ""}`);
@@ -1139,7 +1225,10 @@ async function genrePage(key, n, deadlineAt = Date.now() + LIMITS.homeMs) {
     if (sk[i]) items.push(sk[i]);
     if (ac[i]) items.push(ac[i]);
   }
-  if (n === 1) keepArt(key, ac.length ? ac : items);
+  // Page 1 refreshes the genre's picture (checked, so a missing file is never kept), in what is left of a short window.
+  if (n === 1 && items.length && !storageGet(artKey(key))) {
+    await within(refreshArt(key, ac.length ? ac : items, Math.min(deadlineAt, Date.now() + 1500)), 1500, null).catch(() => null);
+  }
   kino.log(`genre ${key} page ${n}: ${sk.length} + ${ac.length}`);
   return items.slice(0, 100);
 }
@@ -1980,7 +2069,7 @@ function streamOf(got, server, others = [], ref = "", failed = new Set(), opts =
 
 const siteOfRef = (ref) => String(ref).slice(0, String(ref).indexOf("|"));
 
-/** The servers of a ref and, when there are none, the pages a hidden browser may still dig a video out of. */
+/** The servers of a ref, the pages a hidden browser may still dig a video out of, and the page itself (for its title). */
 async function listServers(ref) {
   const siteId = siteOfRef(ref);
   if (siteId === AC.id) return { servers: await acServerList(ref), pages: [] };
@@ -1992,68 +2081,268 @@ async function listServers(ref) {
   kino.log(`resolve ${ref}: servers [${servers.map(safe).join(", ")}]`);
   const fast = await fastServers(site, episodeUrl, servers);
   const pages = fast.length ? [] : pagesToOpen(siteId, episodeUrl, servers).filter((u) => startHost(u) === startHost(site.base));
-  return { servers: fast, pages };
+  return { servers: fast, pages, html };
 }
 
 function refererOf(siteId) {
   return (siteId === AC.id ? AC.base : siteId === SL.id ? SL.base : (SITES[siteId] || SITES.sk).base) + "/";
 }
 
-export async function resolve(ref, options) {
-  await null;
-  const t0 = Date.now();
-  const base = parseServerRef(ref).base;
+// ---------- resolve: the same title on another site ----------
+//
+// Measured 2026-10-04 on a Redmi: allcalidad's "La Pandilla Newton" (post 70272) answers its player API with
+// `embeds: []` (downloads only), so the title could not play at all. When a ref's own site has no server, or none of
+// them gave a video, resolve looks the same title up on the other active sites with their own search and plays it
+// there, in what is left of its budget. Only a confident match is used: the same normalized title (or original title),
+// the same kind (a movie for a movie, a show for an episode, then the same season and episode), the years within one
+// when both are known, and exactly one such title on that site. No match is better than a wrong one.
+
+/** What a fallback needs before it is worth starting (a search, a server list, a page read). */
+const FALLBACK_MIN_MS = 10000;
+/** What a matched title needs left to be played (a server list and a page read). */
+const FALLBACK_PLAY_MS = 6000;
+
+/** A ref's shape: movie or episode, its season/episode, and a title read from its slug (the last resort). */
+export function refShape(base) {
   const siteId = siteOfRef(base);
-  if (!ALL_SITES.includes(siteId)) throw kino.error("not_found", "referencia inválida");
-  const left = () => LIMITS.resolveMs - (Date.now() - t0);
-  // A retry (the CDN said 401/403/409…) or a normal call: a retry never gets the cached copy back, and a server whose
-  // stream was refused goes to the back for a while, so the new search starts elsewhere.
-  const keepLinks = configValue("keepLinks", true) !== false;
-  if (options && options.retry) {
-    const entry = storageGet(streamKey(ref));
-    storageRemove(streamKey(ref));
-    const status = Number(options.retry.status) || 0;
-    if (entry && entry.server && [401, 403, 404, 410].includes(status)) markServer(siteId, entry.server, true);
-    kino.log(`resolve ${ref}: retry ${options.retry.reason || ""} ${status || ""}, cache dropped${entry && entry.server ? `, ${serverName(entry.server)} to the back` : ""}`);
-    report("maraton:retry", String(options.retry.reason || "retry").slice(0, 20), `status=${status}`, `server=${entry && entry.server ? serverName(entry.server) : "none"}`);
-  } else if (keepLinks) {
-    const cached = fromCache(storageGet(streamKey(ref)));
-    if (cached) {
-      kino.log(`resolve ${ref}: cached stream ${safe(cached.url)} (${cached.expiresInSeconds || "?"} s left)`);
-      return cached;
+  const path = String(base).slice(siteId.length + 1);
+  const fromSlug = (slug) => {
+    // serieskao's movie slugs end in a random id ("marea-baja-jxVi2n"); a year at the end is the year.
+    let s = String(slug || "").replace(/-(?=[A-Za-z0-9]{5,8}$)(?=[a-z0-9]*[A-Z])[A-Za-z0-9]+$/, "");
+    let year = "";
+    const y = /^(.+)-((?:19|20)\d{2})$/.exec(s);
+    if (y) { s = y[1]; year = y[2]; }
+    return { slugTitle: s.replace(/-+/g, " ").trim(), slugYear: year };
+  };
+  let m;
+  if (siteId === "sk") {
+    if ((m = /^\/(serie|anime)\/([^/]+)\/temporada\/(\d+)\/capitulo\/(\d+)\/?$/.exec(path))) {
+      return { siteId, kind: "episode", season: +m[3], episode: +m[4], seriesPath: `/${m[1]}/${m[2]}`, ...fromSlug(m[2]) };
     }
+    if ((m = /^\/pelicula\/([^/]+)\/?$/.exec(path))) return { siteId, kind: "movie", ...fromSlug(m[1]) };
+  } else if (siteId === SL.id) {
+    if ((m = /^\/serie\/([^/]+)\/temporada-(\d+)\/episodio-(\d+)\/?$/.exec(path))) {
+      return { siteId, kind: "episode", season: +m[2], episode: +m[3], seriesPath: `/serie/${m[1]}`, ...fromSlug(m[1]) };
+    }
+    if ((m = /^\/pelicula\/([^/]+)\/?$/.exec(path))) return { siteId, kind: "movie", ...fromSlug(m[1]) };
+  } else if (siteId === AC.id) {
+    const r = parseAcRef(base);
+    if (!r) return null;
+    if (r.ep) return { siteId, kind: "episode", season: +r.season, episode: +r.episode, tmdb: r.tmdb !== "0" ? r.tmdb : "", slugTitle: "", slugYear: "" };
+    if (r.legacy) {
+      if (r.kind === "movie") return { siteId, kind: "movie", slugTitle: "", slugYear: "" };
+      return r.season && r.episode ? { siteId, kind: "episode", season: +r.season, episode: +r.episode, tmdb: r.tmdb, slugTitle: "", slugYear: "" } : null;
+    }
+    if (r.type === "movies") return { siteId, kind: "movie", acType: r.type, slug: r.slug, ...fromSlug(r.slug) };
   }
-  const noBrowser = browserMissing();
+  return null;
+}
+
+const jsonString = (s) => { try { return JSON.parse(`"${s}"`); } catch (_) { return ""; } };
+
+/**
+ * The title a site's own page names (its JSON-LD): a show's name on an episode page, a movie's name and its other
+ * names on a movie page, and the year when the page states it for the whole title (serieskao's hero line; SoloLatino's
+ * datePublished on a movie or series page, never an episode's, which is the episode's own date).
+ */
+export function pageInfo(html, siteId, kind) {
+  const h = String(html || "");
+  const names = [];
+  let year = "";
+  if (kind === "movie") {
+    const m = /"@type":"Movie",(?:"@id":"[^"]*",)?"name":"((?:[^"\\]|\\.)*)"(?:,"alternateName":\[((?:"(?:[^"\\]|\\.)*",?)*)\])?/.exec(h);
+    if (m) {
+      names.push(jsonString(m[1]));
+      for (const a of (m[2] || "").match(/"((?:[^"\\]|\\.)*)"/g) || []) names.push(jsonString(a.slice(1, -1)));
+    }
+  } else {
+    const m = /"@type":"TVSeries","name":"((?:[^"\\]|\\.)*)"/.exec(h);
+    if (m) names.push(jsonString(m[1]));
+  }
+  if (siteId === "sk") year = (/detail-hero__type">[^<]*<\/span>\s*<span>((?:19|20)\d{2})<\/span>/.exec(h) || [])[1] || "";
+  else if (siteId === SL.id && (kind === "movie" || kind === "series")) year = (/"datePublished":"((?:19|20)\d{2})/.exec(h) || [])[1] || "";
+  return { names: names.filter((n) => titleKey(n)).slice(0, 6), year };
+}
+
+/**
+ * The confident match for [info] (`{ names, year, kind }`) among one site's search results, or null: the same
+ * normalized name (title or original title), a movie for a movie and a show for an episode, the years within one when
+ * both are known, and exactly one such title (an exact year breaks a tie; anything else left over is no match).
+ */
+export function pickMatch(info, items) {
+  const want = new Set((info.names || []).map(titleKey).filter(Boolean));
+  if (!want.size) return null;
+  const year = parseInt(info.year, 10) || 0;
+  const yearOf = (i) => parseInt(i.year, 10) || 0;
+  const kindOk = (i) => (info.kind === "movie" ? i.kind === "movie" : i.kind === "series");
+  const seen = new Set();
+  let hits = (items || []).filter((i) => i && i.ref && kindOk(i) && [i.title, i.originalTitle].some((t) => want.has(titleKey(t)))
+    && (!year || !yearOf(i) || Math.abs(yearOf(i) - year) <= 1) && !seen.has(i.ref) && seen.add(i.ref));
+  if (hits.length > 1 && year) {
+    const dated = hits.filter((i) => yearOf(i));
+    if (dated.length) hits = dated;
+    if (hits.length > 1) hits = hits.filter((i) => yearOf(i) === year);
+  }
+  return hits.length === 1 ? hits[0] : null;
+}
+
+/** One site's search for the fallback (not a list read: it is part of a play). */
+async function searchOn(siteId, q) {
+  if (siteId === AC.id) return acSearch(q, { list: false });
+  if (siteId === SL.id) return slSearch(q);
+  return cards("sk", await page(SITES.sk, SITES.sk.search(q)));
+}
+
+/**
+ * The names, year and kind of what [base] points at, cheaply: the page the server list already read, else the site's
+ * own title data (allcalidad's /single for a movie, the show name kept from its episode list, SoloLatino's series
+ * page), else the ref's slug.
+ */
+async function titleOf(base, shape, listed) {
+  const kind = shape.kind;
+  const info = { kind, year: "", names: [], from: "" };
+  const take = (names, year, from) => {
+    info.names = [...new Set(names.filter((n) => titleKey(n)))].slice(0, 6);
+    info.year = year || "";
+    info.from = from;
+  };
+  if (shape.siteId === AC.id) {
+    if (kind === "movie" && shape.slug) {
+      try {
+        const it = acItem(await acGet(`/single?post_name=${encodeURIComponent(shape.slug)}&post_type=${shape.acType}`));
+        if (it) take([it.title, it.originalTitle || ""], it.year, "single");
+      } catch (e) {
+        kino.log(`fallback: no allcalidad title data (${e.code || ""})`);
+      }
+    } else if (shape.tmdb) {
+      const kept = storageGet(showKey(shape.tmdb));
+      if (kept && kept.title) take([kept.title, kept.originalTitle || ""], kept.year, "kept");
+    }
+  } else if (shape.siteId === SL.id && kind === "episode") {
+    // The episode page names the show but dates the episode: the series page has both, and its numbering.
+    try {
+      const html = await slRead(shape.seriesPath, { waitFor: "episodio-" });
+      const p = pageInfo(html, SL.id, "series");
+      if (p.names.length) take(p.names, p.year, "series_page");
+      if (shape.season > 1 && numberingStyle(slEpisodes(html, shape.seriesPath)) === "absolute") info.absolute = true;
+    } catch (e) {
+      kino.log(`fallback: no SoloLatino series page (${e.code || ""})`);
+      // Its numbering is unknown: a later season's number may be absolute, so only season 1 is safe.
+      if (shape.season > 1) info.absolute = true;
+    }
+  } else if (listed && listed.html) {
+    const p = pageInfo(listed.html, shape.siteId, kind);
+    if (p.names.length) take(p.names, p.year, "page");
+  }
+  if (!info.names.length && shape.slugTitle) take([shape.slugTitle], shape.slugYear, "slug");
+  return info;
+}
+
+/** The ref to play on [siteId] for a matched title [m]: the movie itself, or the same season and episode of the show. */
+async function refOn(siteId, m, shape) {
+  if (shape.kind === "movie") return m.ref;
+  const { season, episode } = shape;
+  if (siteId === "sk") return `${m.ref}/temporada/${season}/capitulo/${episode}`;
+  if (siteId === AC.id) {
+    const r = parseAcRef(m.ref);
+    if (!r || !r.post || r.legacy) return null;
+    const list = await acGet(`/episodes?post_id=${r.post}`);
+    const e = (Array.isArray(list) ? list : []).find((x) => x && x.season_number === season && x.episode_number === episode && Number.isInteger(x._id));
+    return e ? `ac|ep/${e._id}/${/^\d+$/.test(String(e.show_id || "")) ? e.show_id : 0}/${season}/${episode}` : null;
+  }
+  if (siteId === SL.id) {
+    const path = m.ref.slice(3);
+    const list = slEpisodes(await slRead(path, { waitFor: "episodio-" }), path);
+    // An absolutely numbered show (Naruto's "temporada-2" starts at 53) cannot be matched by season and episode.
+    if (numberingStyle(list) === "absolute") return null;
+    const e = list.find((x) => x.season === season && x.number === episode);
+    return e ? e.ref : null;
+  }
+  return null;
+}
+
+/** The first confident match on [siteId] for any of [info]'s names (at most two searches). */
+async function matchOn(siteId, info) {
+  for (const q of info.names.slice(0, 2)) {
+    const m = pickMatch(info, await searchOn(siteId, q));
+    if (m) return m;
+  }
+  return null;
+}
+
+/**
+ * The same title on another active site, played there: `{ stream, to }`, or `{ why }` ("no_title", "no_site",
+ * "no_match", "failed", "time"). Sites resting, down or switched off are not asked.
+ */
+async function fromAnotherSite(base, siteId, listed, run) {
+  const shape = refShape(base);
+  if (!shape) return { why: "no_title" };
+  const sites = activeSites().filter((id) => id !== siteId && !siteResting(id) && !(id === SL.id && slIsDown()));
+  if (!sites.length) return { why: "no_site" };
+  const info = await within(titleOf(base, shape, listed), Math.min(8000, run.left() - FALLBACK_PLAY_MS), null).catch(() => null);
+  if (!info || !info.names.length) return { why: "no_title" };
+  if (info.absolute) {
+    kino.log(`fallback ${base}: SoloLatino numbers this show absolutely, no safe season/episode on another site`);
+    return { why: "no_title" };
+  }
+  kino.log(`fallback ${base}: looking for ${info.kind} "${info.names.join('" / "').slice(0, 120)}"${info.year ? ` (${info.year})` : ""}${shape.kind === "episode" ? ` ${shape.season}x${shape.episode}` : ""} [${info.from}] on ${sites.join(", ")}`);
+  const searchMs = Math.min(LIMITS.searchMs, run.left() - FALLBACK_PLAY_MS);
+  const matches = await Promise.all(sites.map((id) => within(matchOn(id, info), searchMs, null)
+    .catch((e) => { kino.log(`fallback ${id}: search ${e.code || ""} ${e.message}`); return null; })));
+  let matched = 0;
+  for (let i = 0; i < sites.length; i++) {
+    const id = sites[i];
+    const m = matches[i];
+    if (!m) { kino.log(`fallback ${id}: no confident match`); continue; }
+    matched++;
+    if (run.left() < FALLBACK_PLAY_MS) return { why: "time" };
+    const ref = await within(refOn(id, m, shape), Math.min(10000, run.left() - FALLBACK_PLAY_MS), null)
+      .catch((e) => { kino.log(`fallback ${id}: ${e.code || ""} ${e.message}`); return null; });
+    if (!ref) { kino.log(`fallback ${id}: ${m.ref} has no such ${shape.kind === "episode" ? "episode" : "title"}`); continue; }
+    kino.log(`fallback: ${base} -> ${ref}`);
+    const got = await playOn(ref, run, null);
+    if (got.stream) return { stream: got.stream, to: id };
+  }
+  return { why: matched ? "failed" : "no_match" };
+}
+
+// ---------- resolve ----------
+
+/**
+ * One ref's servers tried in order, inside [run]'s budget: `{ stream }`, or `{ why, error, servers, listed }` when
+ * none gave a video ("no_servers", "no_browser", "list_timeout", "list_failed", a capture's code or "all_failed").
+ */
+async function playOn(base, run, only) {
+  const siteId = siteOfRef(base);
+  const { left, t0 } = run;
   const lang = preferredLang();
   const remembered = (storageGet(serverKey(siteId)) || {}).server || "";
   const chosen = String(configValue("server", "auto"));
-  const { only } = parseServerRef(ref);
   const failed = failedServers(siteId);
 
   // 1. The servers, under their own cap: a slow site page or embed69 must leave the capture its time.
-  const listed = await within(listServers(base), LIMITS.serversMs, null).catch((e) => {
-    report("maraton:resolve", "list_failed", `site=${siteId}`, `code=${e.code || "error"}`);
-    throw e;
-  });
-  if (!listed) {
-    report("maraton:resolve", "list_timeout", `site=${siteId}`);
-    throw kino.error("unavailable", "los servidores no respondieron a tiempo", { userMessage: `${SITE_NAME[siteId]} tardó demasiado en responder. Vuelve a intentar en un rato.` });
+  let listed;
+  try {
+    listed = await within(listServers(base), Math.min(LIMITS.serversMs, Math.max(1000, left() - 3000)), null);
+  } catch (e) {
+    kino.log(`resolve ${base}: listing failed: ${e.code || ""} ${e.message}`);
+    return { why: "list_failed", error: e, servers: 0 };
   }
+  if (!listed) return { why: "list_timeout", servers: 0 };
   let servers = lastIfFailed(rankServers(listed.servers, lang, remembered, chosen), failed);
   if (only) {
     servers = servers.filter((f) => langOf(f.lang) === only.lang && ((f.server || "").toLowerCase() === only.server || serverName(f) === only.server));
     if (!servers.length) throw kino.error("not_found", `sin el servidor ${only.lang}/${only.server}`, { userMessage: "Ese servidor ya no está disponible para este video." });
   }
   const pages = only ? [] : listed.pages;
-  kino.log(`resolve ${siteId}: ${servers.length} server(s) in ${Date.now() - t0} ms (idioma ${lang}, último ${remembered || "-"}, fallaron hace poco ${[...failed].join("/") || "-"}${noBrowser ? ", sin navegador" : ""}): [${servers.map((t) => `${t.lang}/${serverName(t)}${canExtract(t) ? "*" : ""}`).join(", ")}]${pages.length ? `, ${pages.length} page(s) as last resort` : ""}`);
+  kino.log(`resolve ${siteId}: ${servers.length} server(s) in ${Date.now() - t0} ms (idioma ${lang}, último ${remembered || "-"}, fallaron hace poco ${[...failed].join("/") || "-"}${browserMissing() ? ", sin navegador" : ""}): [${servers.map((t) => `${t.lang}/${serverName(t)}${canExtract(t) ? "*" : ""}`).join(", ")}]${pages.length ? `, ${pages.length} page(s) as last resort` : ""}`);
 
   const failedHere = new Set();
   let lastError = null;
   let captures = 0;
   let skippedForBrowser = 0;
-  let captureOff = false;
   const later = [];
-  const canCapture = () => !captureOff && !browserMissing();
+  const canCapture = () => !run.captureOff && !browserMissing();
 
   const finish = async (got, target) => {
     if (got.how !== "page") got.media = await filmMedia(got.media);
@@ -2071,7 +2360,8 @@ export async function resolve(ref, options) {
     }
     const keepMs = keepStreamMs(stream);
     const expiresAtMs = stream.expiresInSeconds ? Date.now() + stream.expiresInSeconds * 1000 : 0;
-    if (keepLinks) storageSet(streamKey(ref), { stream, until: Date.now() + keepMs, expiresAtMs, server: target.server ? { server: target.server, url: target.url, lang: target.lang } : null }, keepMs);
+    // Kept under the ref Kino asked for, even when another site played it.
+    if (run.keepLinks) storageSet(streamKey(run.ref), { stream, until: Date.now() + keepMs, expiresAtMs, site: siteId, server: target.server ? { server: target.server, url: target.url, lang: target.lang } : null }, keepMs);
     kino.log(`stream (${got.how || "capture"}) ${safe(stream.url)} headers=${Object.keys(stream.headers || {}).join(",")} alternatives=${(stream.alternatives || []).length} expires=${stream.expiresInSeconds || "?"} s, resolve ${Date.now() - t0} ms`);
     return stream;
   };
@@ -2103,7 +2393,8 @@ export async function resolve(ref, options) {
         }
         // Another page is open, or this resolve may not open one (Kino's own background check): no capture this call.
         if (e.code === "busy" || e.code === "not_allowed") {
-          captureOff = true;
+          run.captureOff = true;
+          run.busy = run.busy || e.code === "busy";
           return null;
         }
         report("maraton:capture", e.code || "error", `server=${serverName(target)}`, `ms=${took}`, `win=${win}`);
@@ -2131,35 +2422,94 @@ export async function resolve(ref, options) {
         continue;
       }
       const stream = got ? await finish(got, f) : null;
-      if (stream) return stream;
+      if (stream) return { stream };
       // Its page did not give the playlist: the hidden browser may still find it (videoapp only frames vimeos).
       if (f.url.includes("videoapp.zip")) continue;
     }
     if (!canCapture()) { skippedForBrowser++; continue; }
     if (captures >= MAX_CAPTURES) { later.push(f); continue; }
     const stream = await capture(f);
-    if (stream) return stream;
+    if (stream) return { stream };
   }
   for (const f of later) {
     if (!canCapture() || captures > MAX_CAPTURES || left() < LIMITS.minCaptureMs) break;
     if (failedHere.has(f.url)) continue;
     const stream = await capture(f);
-    if (stream) return stream;
+    if (stream) return { stream };
   }
   // 3. Nothing listed played: the site's own page in the hidden browser, digging through its frames.
   for (const url of pages) {
     if (!canCapture() || left() < LIMITS.minCaptureMs) break;
     const stream = await capture({ url, referer: refererOf(siteId) });
-    if (stream) return stream;
+    if (stream) return { stream };
   }
   const why = !servers.length && !pages.length ? "no_servers" : browserMissing() && (skippedForBrowser || pages.length) ? "no_browser" : lastError ? (lastError.code || "error") : "all_failed";
-  report("maraton:resolve", why, `site=${siteId}`, `servers=${servers.length}`, `ms=${Date.now() - t0}`);
+  return { why, error: lastError, servers: servers.length, listed };
+}
+
+export async function resolve(ref, options) {
+  await null;
+  const t0 = Date.now();
+  const base = parseServerRef(ref).base;
+  const siteId = siteOfRef(base);
+  if (!ALL_SITES.includes(siteId)) throw kino.error("not_found", "referencia inválida");
+  const left = () => LIMITS.resolveMs - (Date.now() - t0);
+  // A retry (the CDN said 401/403/409…) or a normal call: a retry never gets the cached copy back, and a server whose
+  // stream was refused goes to the back for a while, so the new search starts elsewhere.
+  const keepLinks = configValue("keepLinks", true) !== false;
+  if (options && options.retry) {
+    const entry = storageGet(streamKey(ref));
+    storageRemove(streamKey(ref));
+    const status = Number(options.retry.status) || 0;
+    if (entry && entry.server && [401, 403, 404, 410].includes(status)) markServer(entry.site || siteId, entry.server, true);
+    kino.log(`resolve ${ref}: retry ${options.retry.reason || ""} ${status || ""}, cache dropped${entry && entry.server ? `, ${serverName(entry.server)} to the back` : ""}`);
+    report("maraton:retry", String(options.retry.reason || "retry").slice(0, 20), `status=${status}`, `server=${entry && entry.server ? serverName(entry.server) : "none"}`);
+  } else if (keepLinks) {
+    const cached = fromCache(storageGet(streamKey(ref)));
+    if (cached) {
+      kino.log(`resolve ${ref}: cached stream ${safe(cached.url)} (${cached.expiresInSeconds || "?"} s left)`);
+      return cached;
+    }
+  }
+  const { only } = parseServerRef(ref);
+  const run = { t0, left, ref, keepLinks, captureOff: false, busy: false };
+  const own = await playOn(base, run, only);
+  if (own.stream) return own.stream;
+
+  // The ref's own site gave no video: the same title on another site, if there is time for it. A copy picked from the
+  // player's Servidor list (`only`) is that copy or nothing.
+  let fb = { why: only ? "only" : "time" };
+  if (!only && !run.busy && left() >= FALLBACK_MIN_MS) {
+    fb = await fromAnotherSite(base, siteId, own.listed, run).catch((e) => {
+      kino.log(`fallback ${base}: ${e.code || ""} ${e.message}`);
+      return { why: e.code === "not_found" ? "failed" : "error" };
+    });
+    if (fb.stream) {
+      kino.log(`resolve ${ref}: ${SITE_NAME[siteId]} gave no video (${own.why}); played from ${SITE_NAME[fb.to]} in ${Date.now() - t0} ms`);
+      report("maraton:fallback", "ok", `from=${siteId}`, `to=${fb.to}`, `why=${own.why}`);
+      return fb.stream;
+    }
+    kino.log(`resolve ${ref}: no other site has it (${fb.why})`);
+  }
+
+  const why = own.why;
+  report("maraton:resolve", why, `site=${siteId}`, `servers=${own.servers}`, `fb=${fb.why}`, `ms=${Date.now() - t0}`);
+  if (why === "list_failed") throw own.error;
+  if (why === "list_timeout") {
+    throw kino.error("unavailable", "los servidores no respondieron a tiempo", { userMessage: `${SITE_NAME[siteId]} tardó demasiado en responder. Vuelve a intentar en un rato.` });
+  }
   if (why === "no_browser") {
     throw kino.error("unavailable", "sin navegador web", { userMessage: "Este aparato no tiene navegador web, y esta fuente lo necesita para reproducir. Prueba otra fuente." });
   }
-  if (lastError && lastError.code === "busy") {
+  if (run.busy || (own.error && own.error.code === "busy")) {
     throw kino.error("unavailable", "navegador ocupado", { userMessage: "Hay otro video buscándose en este momento. Vuelve a intentar en unos segundos." });
   }
+  if (why === "no_servers" && (fb.why === "no_match" || fb.why === "failed")) {
+    throw kino.error("not_found", `no_servers, fallback ${fb.why}`, {
+      userMessage: `${SITE_NAME[siteId]} no tiene video para este título y no lo encontramos en los otros sitios. Prueba otra fuente.`,
+    });
+  }
+  const lastError = own.error;
   throw kino.error("not_found", lastError ? `${lastError.code || ""} ${lastError.message}` : why, { userMessage: "No encontramos el video. Prueba otra fuente." });
 }
 

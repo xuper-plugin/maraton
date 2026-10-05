@@ -16,6 +16,8 @@ servidores intermedios.
 - **Episodios** de todas las temporadas, y la ficha de la serie (sinopsis, póster, año).
 - **Reproducir**: prueba los servidores en orden y recuerda cuál te funcionó la última vez, así el siguiente
   episodio abre más rápido. Si el mismo episodio se vuelve a abrir en las horas siguientes, arranca sin buscar de nuevo.
+- **Si un sitio no tiene el video**, lo busca en los otros sitios que tienes activos: el mismo título (y el mismo
+  año, temporada y episodio) y nada parecido. Si no está igualito en ninguno, te lo dice en vez de ponerte otra cosa.
 - **Otros servidores e idiomas** en la lista Servidor del reproductor ("Latino · Voe", "Subtitulado · Streamwish"…): se
   buscan solo si los eliges o si el que está sonando falla.
 - **Subtítulos** en español cuando la página los trae.
@@ -53,7 +55,8 @@ puede leer páginas).
 - **Página de Maratón**: un chip en Inicio (celular) o una entrada en la barra lateral (TV), con pestañas **Series**,
   **Anime**, **Películas** y **Géneros**, en los colores verdes del plugin.
 - **Categorías ▸ Maratón**: 22 géneros (Acción, Comedia, Drama, Terror, Animación, Doramas…), cada uno con lo que
-  tienen SeriesKao y AllCalidad mezclado, página por página.
+  tienen SeriesKao y AllCalidad mezclado, página por página. El dibujo de cada género es una imagen de uno de sus
+  títulos que se comprobó que carga (si la primera no existe, la siguiente, luego un póster).
 
 ## Ajustes
 
@@ -89,7 +92,9 @@ Maratón usa casi todo lo que ofrece el SDK de plugins de Kino; `plugin.js` est�
 - **Tiempos** (`LIMITS` en `plugin.js`): Inicio y la página contestan a los 12 s con lo que esté listo (filas guardadas
   para el sitio que tarda), la búsqueda a los 12,5 s, los dibujos de Categorías en 3 s; `resolve` lista servidores en
   22 s como mucho, lee la página de cada reproductor en 6 s y da a cada página oculta una ventana medida por servidor
-  (Streamwish 22 s, Vidhide 16 s, Voe 12 s…), siempre por debajo de los 75 s que Kino le da.
+  (Streamwish 22 s, Vidhide 16 s, Voe 12 s…), siempre por debajo de los 75 s que Kino le da. Si el sitio del título
+  no da video y quedan al menos 10 s, busca el mismo título en los otros sitios (`pickMatch`: mismo nombre normalizado
+  o título original, mismo tipo, años a ±1, uno solo) y lo reproduce ahí con lo que queda del tiempo.
 - **Búsqueda** con `kino.rank` (cabeza del título, orden por parecido, relevancia) y los títulos alternos de TMDB que
   Kino manda (`originalTitle`, `altTitles`).
 - **`kino.storage`** con vencimiento (`ttlMs`) para los enlaces, el último servidor que funcionó y el IMDb de cada serie.

@@ -1,0 +1,36 @@
+{
+ "error": false,
+ "message": "",
+ "data": {
+  "_id": 70272,
+  "title": "La Pandilla Newton (1998)",
+  "overview": "Aún no hemos añadido una sinopsis para este título. <br />¡Gracias por tu paciencia! Estamos trabajando para agregarla pronto.",
+  "slug": "la-pandilla-newton-1998",
+  "images": {
+   "poster": "/thumbs/2e61866ea98aba76b0b07e7e7728c646_hd.webp",
+   "backdrop": "/backdrops/2e61866ea98aba76b0b07e7e7728c646.webp",
+   "logo": "/logos/2e61866ea98aba76b0b07e7e7728c646.webp"
+  },
+  "trailer": "MSiIVMi1A08",
+  "rating": "6.1",
+  "genres": [
+   26,
+   135,
+   156
+  ],
+  "quality": [
+   61856
+  ],
+  "years": [
+   633
+  ],
+  "type": "movies",
+  "release_date": "1998-03-26",
+  "last_update": "2026-09-22 23:18:22",
+  "vote_count": "207",
+  "runtime": "122.0",
+  "original_title": "The Newton Boys",
+  "gallery": "",
+  "tagline": ""
+ }
+}
