@@ -1,0 +1,66 @@
+{
+ "error": false,
+ "message": "",
+ "data": [
+  {
+   "_id": 41643,
+   "title": "Dark: Temporada 1 Episodio 2",
+   "slug": "dark-temporada-1-episodio-2",
+   "type": "episodes",
+   "episode_type": "standard",
+   "overview": "La policía queda desconcertada tras un descubrimiento macabro, y Ulrich busca una orden de allanamiento para la planta de energía. Un extraño se registra en el hotel.",
+   "runtime": "45",
+   "show_id": "70523",
+   "still_path": "/oFTNaNwF1g0GCQPTXgHviixMCDM.jpg",
+   "vote_average": "7.792",
+   "vote_count": "96",
+   "season_number": 1,
+   "episode_number": 2
+  },
+  {
+   "_id": 41663,
+   "title": "Dark: Temporada 1 Episodio 1",
+   "slug": "dark-temporada-1-episodio-1",
+   "type": "episodes",
+   "episode_type": "standard",
+   "overview": "2019. La desaparición de un niño local aterroriza a los habitantes de Winden, un pueblito alemán con una historia tan trágica como extraña.",
+   "runtime": "52",
+   "show_id": "70523",
+   "still_path": "/ljQC5U5Ag86vRylCR5gmf78fVaS.jpg",
+   "vote_average": "7.922",
+   "vote_count": "129",
+   "season_number": 1,
+   "episode_number": 1
+  },
+  {
+   "_id": 41664,
+   "title": "Dark: Temporada 1 Episodio 3",
+   "slug": "dark-temporada-1-episodio-3",
+   "type": "episodes",
+   "episode_type": "standard",
+   "overview": "1986. Mads, el hermano de Ulrich, está desaparecido desde hace un mes. La confusión se apodera de la situación cuando el pasado y el presente se entrecruzan.",
+   "runtime": "46",
+   "show_id": "70523",
+   "still_path": "/63pMJ4CLC7MDzjgWWlGZ2NKOG6o.jpg",
+   "vote_average": "8.048",
+   "vote_count": "84",
+   "season_number": 1,
+   "episode_number": 3
+  },
+  {
+   "_id": 41673,
+   "title": "Dark: Temporada 2 Episodio 1",
+   "slug": "dark-temporada-2-episodio-1",
+   "type": "episodes",
+   "episode_type": "standard",
+   "overview": "Seis meses después de las desapariciones, la policía forma un grupo de trabajo. En el año 2052, Jonas se entera de que muchas muertes se dieron en un evento apocalíptico.",
+   "runtime": "54",
+   "show_id": "70523",
+   "still_path": "/vMNgEJ1jAZHKRa5BFMOMEf2chCD.jpg",
+   "vote_average": "7.968",
+   "vote_count": "62",
+   "season_number": 2,
+   "episode_number": 1
+  }
+ ]
+}

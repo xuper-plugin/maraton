@@ -25,6 +25,8 @@ globalThis.kino = {
   },
   browser: { capture: async (url, opts) => { captured.push(url); return captureAnswer(url, opts); } },
   error: kinoError,
+  // Real time, but tests shrink LIMITS; an unref'd timer never keeps the test process alive.
+  sleep: (ms) => new Promise((r) => { const t = setTimeout(r, ms); if (t.unref) t.unref(); }),
   log: Object.assign(() => {}, { report: (...a) => reports.push(a) }),
   // The two kino.crypto calls the embed69 fast path makes, with Node's crypto (hex in/out like Kino's).
   crypto: {
@@ -48,7 +50,7 @@ const store = new Map();
 const ttls = new Map();
 const config = {};
 // SoloLatino is off by default in these tests (its own tests switch it on): the older tests are about two sites.
-beforeEach(() => { reports.length = 0; store.clear(); ttls.clear(); for (const k of Object.keys(config)) delete config[k]; config.useSololatino = false; });
+beforeEach(() => { plugin.forgetPages(); reports.length = 0; store.clear(); ttls.clear(); for (const k of Object.keys(config)) delete config[k]; config.useSololatino = false; });
 const plugin = await import("../plugin.js");
 
 test("search reads serieskao's cards and survives the other site failing", async () => {
@@ -119,17 +121,19 @@ test("resolve takes the embed69 fast path: captures the decrypted embed pages, n
   }
 });
 
-test("servers: latino first (default), then streamwish/hglink, unknown, vidhide, voe last", () => {
+test("servers: latino first; within it the servers whose page carries the playlist, then streamwish, unknown, voe", () => {
   const list = [
     { lang: "LAT", server: "vidhide", url: "https://morencius.com/embed/a" },
     { lang: "SUB", server: "streamwish", url: "https://hglink.to/e/s" },
-    { lang: "LAT", server: "filemoon", url: "https://filemoon.example/e/f" },
+    { lang: "LAT", server: "mystery", url: "https://mystery.example/e/f" },
     { lang: "LAT", server: "voe", url: "https://voe.sx/e/v" },
     { lang: "LAT", server: "streamwish", url: "https://hglink.to/e/l" },
   ];
   assert.deepEqual(plugin.rankServers(list).map((f) => f.url), [
-    "https://hglink.to/e/l", "https://filemoon.example/e/f", "https://morencius.com/embed/a", "https://voe.sx/e/v", "https://hglink.to/e/s",
+    "https://hglink.to/e/l", "https://morencius.com/embed/a", "https://mystery.example/e/f", "https://voe.sx/e/v", "https://hglink.to/e/s",
   ]);
+  assert.ok(plugin.canExtract({ url: "https://hglink.to/e/l" }) && plugin.canExtract({ url: "https://vimeos.net/embed-x.html" }));
+  assert.ok(!plugin.canExtract({ url: "https://voe.sx/e/v" }) && !plugin.canExtract({ url: "https://filemoon.sx/e/x" }));
 });
 
 test("a page gets 15 s while others remain and the full 25 s when it is the last", () => {
@@ -286,56 +290,72 @@ test("a server ref addresses one language/server; resolve opens only that one", 
   }
 });
 
-const AC = "https://tmdb.allcalidad.re";
+const ACAPI = "https://allcalidad.re/api/rest";
 
-test("allcalidad items carry their TMDB and IMDb ids; anime is a series", () => {
-  const items = JSON.parse(fixture("ac-search-dark.json")).items.map(plugin.acItem).filter(Boolean);
-  const dark = items.find((i) => i.ref === "ac|tvshow/70523");
+test("allcalidad items from its API: title and year split, images, genres; anime is a series", () => {
+  const items = JSON.parse(fixture("ac2-search-dark.json")).data.posts.map(plugin.acItem).filter(Boolean);
+  const dark = items.find((i) => i.ref === "ac|tvshows/41641/dark-2017");
   assert.equal(dark.kind, "series");
-  assert.deepEqual(dark.ids, { tmdb: 70523, imdb: "tt5753856" });
-  assert.match(dark.poster, /^https:\/\/image\.tmdb\.org\/t\/p\/w342\//);
-  assert.ok(items.some((i) => i.kind === "movie" && i.ref.startsWith("ac|movie/")));
-  const anime = items.find((i) => i.ref.startsWith("ac|anime/"));
+  assert.equal(dark.title, "Dark");
+  assert.equal(dark.year, "2017");
+  assert.match(dark.poster, /^https:\/\/allcalidad\.re\/wp-content\/uploads\/thumbs\//);
+  assert.match(dark.backdrop, /^https:\/\/allcalidad\.re\/wp-content\/uploads\/backdrops\//);
+  assert.equal(dark.id, "ac-tvshows-41641");
+  const grimm = items.find((i) => i.ref.startsWith("ac|tvshows/57298/"));
+  assert.equal(grimm.title, "A Tale Dark & Grimm");
+  assert.equal(grimm.overview, undefined); // the site's "no synopsis yet" placeholder is left out
+  assert.ok(items.some((i) => i.kind === "movie" && i.ref.startsWith("ac|movies/")));
+  const anime = plugin.acItem({ _id: 4993, type: "animes", slug: "naruto-2002", title: "Naruto (2002)", genres: [51] });
   assert.equal(anime.kind, "series");
   assert.equal(anime.genres[0], "Anime");
-  assert.equal(plugin.acItem({ kind: "person", tmdb_id: 1, title: "x" }), null);
+  assert.equal(plugin.acItem({ type: "person", _id: 1, title: "x", slug: "x" }), null);
 });
 
-test("allcalidad episodes: every season's list, with stills and air dates", async () => {
-  pages[`${AC}/v1/items/tvshow/70523`] = fixture("ac-item-tvshow-70523.json");
-  pages[`${AC}/v1/items/tvshow/70523/seasons/1`] = fixture("ac-season-70523-1.json");
+test("allcalidad episodes: the show's list with stills, its TMDB id from the episodes", async () => {
+  pages[`${ACAPI}/episodes?post_id=41641`] = fixture("ac2-episodes-41641.json");
   try {
-    const r = await plugin.episodes("ac|tvshow/70523");
-    // Seasons 2 and 3 answer 404 here: they are just missing, season 1 still comes.
-    assert.equal(r.episodes.length, 10);
-    assert.equal(r.episodes[0].ref, "ac|tvshow/70523/1/1");
-    assert.equal(r.episodes[0].title, "Secretos");
-    assert.equal(r.episodes[0].airDate, "2017-12-01");
-    assert.deepEqual(r.series.ids, { tmdb: 70523, imdb: "tt5753856" });
+    const r = await plugin.episodes("ac|tvshows/41641/dark-2017");
+    // The title's own info (single) answers 404 here: the episodes still come.
+    assert.deepEqual(r.episodes.map((e) => [e.season, e.number]), [[1, 1], [1, 2], [1, 3], [2, 1]]);
+    assert.equal(r.episodes[0].ref, "ac|ep/41663/70523/1/1");
+    assert.match(r.episodes[0].still, /^https:\/\/image\.tmdb\.org\/t\/p\/w300\//);
+    assert.equal(r.episodes[0].title, undefined); // "Dark: Temporada 1 Episodio 1" says nothing
+    assert.ok(r.episodes[0].overview.length > 20);
+    assert.deepEqual(r.series.ids, { tmdb: 70523 });
+    await assert.rejects(plugin.episodes("ac|tvshow/70523"), (e) => e.code === "not_found" && /busca el título de nuevo/i.test(e.userMessage));
   } finally {
-    delete pages[`${AC}/v1/items/tvshow/70523`];
-    delete pages[`${AC}/v1/items/tvshow/70523/seasons/1`];
+    delete pages[`${ACAPI}/episodes?post_id=41641`];
   }
 });
 
-test("allcalidad playback: refs map to the API path, embeds to servers", () => {
-  assert.equal(plugin.acPlaybackPath("ac|movie/603"), "/v1/playback/movie/603");
-  assert.equal(plugin.acPlaybackPath("ac|tvshow/70523/1/2#lat/vimeos"), "/v1/playback/tvshow/70523?season=1&episode=2");
-  assert.throws(() => plugin.acPlaybackPath("ac|tvshow/70523"));
-  assert.deepEqual(plugin.acServers(JSON.parse(fixture("ac-playback-movie-603.json"))).map((f) => [plugin.langOf(f.lang), f.server]),
-    [["lat", "vimeos"], ["lat", "goodstream"]]);
+test("allcalidad refs: posts, episodes with their TMDB ids, and the TMDB refs saved before 0.6.2", () => {
+  assert.deepEqual(plugin.parseAcRef("ac|movies/27621/matrix-1999"), { type: "movies", post: "27621", slug: "matrix-1999" });
+  assert.deepEqual(plugin.parseAcRef("ac|ep/41663/70523/1/1#lat/vimeos"), { ep: true, post: "41663", tmdb: "70523", season: "1", episode: "1" });
+  assert.deepEqual(plugin.parseAcRef("ac|tvshow/70523/1/2"), { legacy: true, kind: "tvshow", tmdb: "70523", season: "1", episode: "2" });
+  assert.equal(plugin.parseAcRef("ac|nope/1"), null);
+  assert.equal(plugin.videoappUrl("movie", "603"), "https://videoapp.zip/e/movie/603");
+  assert.equal(plugin.videoappUrl("tv", "70523", "1", "2"), "https://videoapp.zip/e/tv/70523/1/2");
+  assert.equal(plugin.videoappUrl("tv", "70523"), "");
+  assert.deepEqual(plugin.acServers(JSON.parse(fixture("ac2-player-27621.json")).data).map((f) => [plugin.langOf(f.lang), f.server]),
+    [["lat", "vimeos"], ["lat", "goodstream"], ["lat", "hlswish"], ["lat", "voe"], ["lat", "filemoon"], ["lat", "videoapp"]]);
 });
 
-test("allcalidad resolve opens the embed page the API lists", async () => {
-  pages[`${AC}/v1/playback/tvshow/70523?season=1&episode=1`] = fixture("ac-playback-70523-1-1.json");
+test("allcalidad resolve reads vimeos' own page: no hidden browser, the player gets the page's User-Agent and Referer", async () => {
+  pages[`${ACAPI}/player?post_id=41663&_any=1`] = fixture("ac2-player-41663.json");
+  pages["https://vimeos.net/embed-aeyyn4wosizi.html"] = fixture("emb-vimeos.html");
   captured.length = 0;
-  captureAnswer = async () => ({ media: [{ url: "https://cdn.example/master.m3u8", headers: {} }], subtitles: [], finalUrl: "" });
   try {
-    const st = await plugin.resolve("ac|tvshow/70523/1/1");
-    assert.equal(st.url, "https://cdn.example/master.m3u8");
-    assert.deepEqual(captured.map((u) => new URL(u).host), ["vimeos.net"]);
+    const st = await plugin.resolve("ac|ep/41663/70523/1/1");
+    assert.deepEqual(captured, []);
+    assert.match(st.url, /^https:\/\/s10\.vimeos\.net\/hls2\/.*master\.m3u8\?/);
+    assert.deepEqual(st.headers, { "User-Agent": plugin.UA, Referer: "https://vimeos.net/", Origin: "https://vimeos.net" });
+    assert.equal(st.label, "Latino · Vimeos");
+    // The other copy (videoapp, built from the episode's TMDB ids) is offered lazily.
+    assert.deepEqual(st.alternatives, [{ label: "Latino · Videoapp", ref: "ac|ep/41663/70523/1/1#lat/videoapp" }]);
+    assert.ok(ttls.get("stream:ac|ep/41663/70523/1/1") <= 10 * 60 * 1000); // no expiry in the URL: kept briefly
   } finally {
-    delete pages[`${AC}/v1/playback/tvshow/70523?season=1&episode=1`];
+    delete pages[`${ACAPI}/player?post_id=41663&_any=1`];
+    delete pages["https://vimeos.net/embed-aeyyn4wosizi.html"];
   }
 });
 
@@ -368,7 +388,7 @@ test("resolve never starts a page it has no time left for", async () => {
   }
 });
 
-const ACG = "https://tmdb.allcalidad.re/v1/taxonomies/genre/acci%C3%B3n/items?page=1";
+const ACG = `${ACAPI}/listing?tax=genres&term=accion&page=1&post_type=movies,tvshows,animes&posts_per_page=24`;
 
 test("Usar SeriesKao / Usar AllCalidad: a switched-off site is never asked", async () => {
   const asked = [];
@@ -378,7 +398,7 @@ test("Usar SeriesKao / Usar AllCalidad: a switched-off site is never asked", asy
     config.useSerieskao = false;
     assert.deepEqual(plugin.activeSites(), ["ac"]);
     await plugin.search({ q: "dark" }).catch(() => []);
-    assert.ok(asked.length > 0 && asked.every((h) => h === "tmdb.allcalidad.re"));
+    assert.ok(asked.length > 0 && asked.every((h) => h === "allcalidad.re"));
     config.useSerieskao = true;
     config.useAllcalidad = false;
     asked.length = 0;
@@ -436,13 +456,14 @@ test("categories: one tile per genre an active site has, each opening a genre br
   assert.ok(!skOnly.some((t) => t.ref === "genre|musica"));
 });
 
-test("a genre page interleaves both sites; one site missing still pages", async () => {
+test("a genre page interleaves both sites; one site missing still pages; page 1 keeps the genre's art", async () => {
   pages["https://serieskao.top/generos/accion?page=1"] = fixture("sk-generos-accion-2.html");
-  pages[ACG] = fixture("ac-genre-accion-1.json");
+  pages[ACG] = fixture("ac2-genre-drama-1.json");
   try {
     const p = await plugin.browse("genre|accion", null);
     assert.equal(p.next, "2");
     assert.deepEqual(p.items.slice(0, 4).map((i) => i.ref.slice(0, 3)), ["sk|", "ac|", "sk|", "ac|"]);
+    assert.match(JSON.parse(store.get("art:accion")).art, /^https:\/\/allcalidad\.re\/wp-content\/uploads\/backdrops\//);
     delete pages[ACG];
     const skOnly = await plugin.browse("genre|accion", null);
     assert.ok(skOnly.items.length > 0 && skOnly.items.every((i) => i.ref.startsWith("sk|")));
@@ -453,13 +474,21 @@ test("a genre page interleaves both sites; one site missing still pages", async 
   }
 });
 
-test("section: four tabs, the chosen one answered, an unknown tab falls back to Series", async () => {
-  const sec = await plugin.section({ tab: "peliculas" });
-  assert.deepEqual(sec.tabs.map((t) => t.id), ["series", "anime", "peliculas", "generos"]);
-  assert.equal(sec.tab, "peliculas");
-  // No site answered in this test: no rows, so no hero (never a text-only band).
-  assert.equal(sec.hero, undefined);
-  assert.equal((await plugin.section({ tab: "x" })).tab, "series");
+test("section: four tabs, the chosen one answered, an unknown tab falls back to Series; nothing at all is a sentence", async () => {
+  pages["https://serieskao.top/peliculas?page=1"] = fixture("sk-search-dark.html");
+  pages["https://serieskao.top/series?page=1"] = fixture("sk-search-dark.html");
+  try {
+    const sec = await plugin.section({ tab: "peliculas" });
+    assert.deepEqual(sec.tabs.map((t) => t.id), ["series", "anime", "peliculas", "generos"]);
+    assert.equal(sec.tab, "peliculas");
+    assert.equal(sec.rows[0].id, "sk-pelicula");
+    assert.equal((await plugin.section({ tab: "x" })).tab, "series");
+  } finally {
+    delete pages["https://serieskao.top/peliculas?page=1"];
+    delete pages["https://serieskao.top/series?page=1"];
+  }
+  store.clear();
+  await assert.rejects(plugin.section({ tab: "anime" }), (e) => e.code === "unavailable" && /no están respondiendo/.test(e.userMessage));
 });
 
 test("settingsStatus names the active sites, the language and the server that last worked", async () => {
@@ -506,7 +535,9 @@ test("the playing copy is labelled; every other server and language is a lazy { 
     { label: "Subtitulado · Streamwish", ref: "sk|/serie/dark/temporada/1/capitulo/1#sub/streamwish" },
   ]);
   const many = Array.from({ length: 12 }, (_, i) => ({ lang: "LAT", server: `s${i}`, url: `https://h${i}.example/e` }));
-  assert.equal(plugin.alternativesOf([], playing, many, "r").length, 3);
+  assert.equal(plugin.alternativesOf([], playing, many, "r").length, 5);
+  // On a device without a usable hidden browser only the servers whose page carries its playlist are offered.
+  assert.deepEqual(plugin.alternativesOf([], playing, mixed, "r", new Set(), { needBrowser: true }).map((a) => a.ref), ["r#lat/vidhide", "r#sub/streamwish"]);
 });
 
 test("resolve: the stream names its copy and offers the servers it did not try, not the ones that failed", async () => {
@@ -514,7 +545,7 @@ test("resolve: the stream names its copy and offers the servers it did not try, 
   captured.length = 0;
   let n = 0;
   captureAnswer = async () => {
-    if (n++ === 0) throw Object.assign(new Error("timeout"), { code: "timeout" });
+    if (n++ === 0) throw Object.assign(new Error("human check"), { code: "blocked" });
     return { media: [{ url: "https://cdn.example/master.m3u8", headers: {} }], subtitles: [], finalUrl: "" };
   };
   try {
@@ -541,20 +572,22 @@ test("scopedSearch: a catalog row keeps its site and kind; a genre page lets Kin
   assert.equal(plugin.scopeOf("row|zz|x"), null);
 });
 
-test("telemetry reports carry only our own codes: site down, Cloudflare, capture timeout per server, embed69 empty", async () => {
+test("telemetry reports carry only our own codes: site down, Cloudflare, capture timeout per server, embed69 changed", async () => {
   const saved = kino.fetch;
   try {
     kino.fetch = async () => { throw Object.assign(new Error("timeout"), { code: "timeout" }); };
     await plugin.episodes("sk|/serie/dark").catch(() => {});
-    assert.deepEqual(reports.pop(), ["maraton:site", "down", "site=sk", "code=timeout"]);
+    assert.deepEqual(reports.pop().slice(0, 4), ["maraton:site", "down", "site=sk", "code=timeout"]);
     kino.fetch = async () => ({ ok: true, status: 200, text: () => "<title>Just a moment...</title>" });
     await plugin.episodes("sk|/serie/dark").catch(() => {});
     assert.deepEqual(reports.pop(), ["maraton:site", "cloudflare", "site=sk"]);
+    store.clear(); // the site rested after those failures
     kino.fetch = async (url) => (url.includes("/vidurl/") ? { ok: true, status: 200, text: () => "<html>changed</html>" } : saved(url));
     captureAnswer = async () => { throw Object.assign(new Error("timeout"), { code: "timeout" }); };
     await plugin.resolve("sk|/serie/dark/temporada/1/capitulo/1").catch(() => {});
-    assert.ok(reports.some((r) => r[0] === "maraton:embed69" && r[1] === "no_servers"));
+    assert.ok(reports.some((r) => r[0] === "maraton:embed69" && r[1] === "no_list" && r[2] === "site=sk"));
     assert.ok(reports.some((r) => r[0] === "maraton:capture" && r[1] === "timeout" && r[2] === "server=episode_page"));
+    assert.ok(reports.some((r) => r[0] === "maraton:resolve" && r[1] === "timeout" && r[2] === "site=sk"));
     // Nothing reported carries a URL, a host or a title.
     for (const r of reports) for (const c of r) assert.doesNotMatch(String(c), /https?:|\.top|\.net|dark/i);
   } finally {
@@ -562,27 +595,29 @@ test("telemetry reports carry only our own codes: site down, Cloudflare, capture
   }
 });
 
-test("a capture timeout on a known server reports that server's name", async () => {
+test("a capture timeout on a known server reports that server's name and the window it had", async () => {
   pages["https://serieskao.top/vidurl/tt5753856-1x01/"] = fixture("sk-vidurl-embed69.html");
   captureAnswer = async () => { throw Object.assign(new Error("timeout"), { code: "timeout" }); };
   try {
     await plugin.resolve("sk|/serie/dark/temporada/1/capitulo/1").catch(() => {});
-    assert.deepEqual(reports.filter((r) => r[0] === "maraton:capture").map((r) => r[2]), ["server=streamwish", "server=vidhide", "server=voe"]);
+    const caps = reports.filter((r) => r[0] === "maraton:capture");
+    assert.deepEqual([...new Set(caps.map((r) => r[2]))], ["server=streamwish", "server=vidhide", "server=voe"]);
+    assert.ok(caps.every((r) => /^ms=\d+$/.test(r[3]) && /^win=\d+$/.test(r[4])));
   } finally {
     delete pages["https://serieskao.top/vidurl/tt5753856-1x01/"];
   }
 });
 
-test("richer cards: serieskao ratings, allcalidad runtime/quality/genres, series genres from the page", async () => {
+test("richer cards: serieskao ratings, allcalidad runtime/rating/genres, series genres from the page", async () => {
   config.useAllcalidad = false;
   const dark = (await plugin.search({ q: "dark" })).find((i) => i.ref === "sk|/serie/dark");
   assert.equal(dark.rating, 7.7);
-  const matrix = plugin.acItem({ kind: "movie", tmdb_id: 603, title: "Matrix", runtime: 131, quality: "HD", vote_average: 8.259, genres: [{ title: "Acción" }] });
+  const matrix = plugin.acItem(JSON.parse(fixture("ac2-single-matrix.json")).data);
   assert.equal(matrix.runtimeMinutes, 131);
-  assert.deepEqual(matrix.badges, ["HD"]);
-  assert.equal(matrix.rating, 8.3);
-  assert.deepEqual(matrix.genres, ["Acción"]);
-  assert.equal(plugin.acItem({ kind: "tvshow", tmdb_id: 1, title: "S", runtime: 50 }).runtimeMinutes, undefined);
+  assert.equal(matrix.rating, 8.2);
+  assert.deepEqual(matrix.genres, ["Acción", "Ciencia ficción"]);
+  assert.equal(matrix.originalTitle, "The Matrix");
+  assert.equal(plugin.acItem({ type: "tvshows", _id: 1, slug: "s", title: "S", runtime: "50" }).runtimeMinutes, undefined);
   const ep = await plugin.episodes("sk|/serie/dark");
   assert.deepEqual(ep.series.genres, ["Crimen", "Drama", "Sci-Fi & Fantasy", "Misterio"]);
 });
@@ -623,23 +658,27 @@ test("filmMedia: a manifest drops every mp4 and every ad; only-mp4 captures drop
 });
 
 test("Matrix as measured: a capture of only a casino preroll is a failure, the next server plays, no mp4 offered", async () => {
-  const AC = "https://tmdb.allcalidad.re";
-  pages[`${AC}/v1/playback/movie/603`] = fixture("ac-playback-movie-603.json");
+  pages[`${ACAPI}/player?post_id=27621&_any=1`] = JSON.stringify({ error: false, message: "", data: { embeds: [
+    { lang: "Latino", quality: "Full HD", url: "https://vimeos.net/embed-n1heuxm4500w.html" },
+    { lang: "Latino", quality: "Full HD", url: "https://goodstream.one/embed-vqp2pcmwqqmb.html" },
+  ] } });
   captured.length = 0;
-  // vimeos first: its player hands over only the casino preroll, goodstream plays.
+  // Neither page carries its playlist here (404): the hidden browser. vimeos hands over only the casino preroll.
   captureAnswer = async (url) => (url.includes("vimeos")
     ? { media: [{ url: "https://cdn.jugabet.cl/promo/preroll.mp4", headers: {} }], subtitles: [], finalUrl: "" }
-    : { media: [{ url: "https://hls2.goodstream.one/hls2/01/x/master.m3u8", headers: { Referer: "https://goodstream.one/", Cookie: "c=1" } },
+    : { media: [{ url: "https://hls2.goodstream.one/hls2/01/x/master.m3u8", headers: { Referer: "https://goodstream.one/", Cookie: "c=1", "User-Agent": "WebView UA" } },
       { url: "https://cdn.jugabet.cl/promo/preroll.mp4", headers: {} }], subtitles: [], finalUrl: "" });
   try {
-    const st = await plugin.resolve("ac|movie/603");
+    const st = await plugin.resolve("ac|movies/27621/matrix-1999");
     assert.equal(st.url, "https://hls2.goodstream.one/hls2/01/x/master.m3u8");
-    assert.deepEqual(st.headers, { Referer: "https://goodstream.one/", Cookie: "c=1" }); // capture's headers passed as is
+    // The capture's headers passed exactly as the page sent them.
+    assert.deepEqual(st.headers, { Referer: "https://goodstream.one/", Cookie: "c=1", "User-Agent": "WebView UA" });
+    assert.ok(ttls.get("stream:ac|movies/27621/matrix-1999") <= 10 * 60 * 1000); // cookie-bound: kept briefly
     assert.ok(!(st.alternatives || []).some((a) => a.url && /\.mp4/.test(a.url)));
     assert.ok(plugin.failedServers("ac").has("vimeos"));
     assert.ok(reports.some((r) => r[1] === "only_ads"));
   } finally {
-    delete pages[`${AC}/v1/playback/movie/603`];
+    delete pages[`${ACAPI}/player?post_id=27621&_any=1`];
   }
 });
 
@@ -666,10 +705,10 @@ test("a server that failed lately goes to the back and out of the lazy copies; a
   }
 });
 
-test("at most three lazy copies, best first", () => {
+test("at most five lazy copies, best first, each server once", () => {
   const many = Array.from({ length: 7 }, (_, i) => ({ lang: "LAT", server: `s${i}`, url: `https://h${i}.example/e` }));
-  const alts = plugin.alternativesOf([], { lang: "LAT", server: "x", url: "https://p.example/e" }, many, "r");
-  assert.deepEqual(alts.map((a) => a.ref), ["r#lat/s0", "r#lat/s1", "r#lat/s2"]);
+  const alts = plugin.alternativesOf([], { lang: "LAT", server: "x", url: "https://p.example/e" }, [...many, many[0]], "r");
+  assert.deepEqual(alts.map((a) => a.ref), ["r#lat/s0", "r#lat/s1", "r#lat/s2", "r#lat/s3", "r#lat/s4"]);
 });
 
 test("Voe goes after the other known servers by default (its ALTCHA check blocks the capture)", () => {
@@ -693,24 +732,25 @@ test("a blocked capture (human check) is a server failure, remembered and report
   }
 });
 
-test("allcalidad: vimeos before goodstream by default, a normal server again (Probar primero still wins)", async () => {
+test("allcalidad: vimeos before goodstream by default (Probar primero still wins); old TMDB refs play through videoapp", async () => {
   const list = [
     { lang: "Latino", server: "goodstream", url: "https://goodstream.one/embed-b.html" },
     { lang: "Latino", server: "vimeos", url: "https://vimeos.net/embed-a.html" },
   ];
   assert.deepEqual(plugin.rankServers(list).map((f) => f.server), ["vimeos", "goodstream"]);
   assert.deepEqual(plugin.rankServers(list, "lat", "", "goodstream").map((f) => f.server), ["goodstream", "vimeos"]);
-  const AC = "https://tmdb.allcalidad.re";
-  pages[`${AC}/v1/playback/movie/603`] = fixture("ac-playback-movie-603.json");
+  // A movie saved before 0.6.2 (TMDB id 603): videoapp frames a vimeos page, whose playlist is read.
+  pages["https://videoapp.zip/e/movie/603"] = fixture("videoapp-movie-603.html");
+  pages["https://vimeos.net/embed-n1heuxm4500w.html"] = fixture("emb-vimeos.html");
   captured.length = 0;
-  captureAnswer = async () => ({ media: [{ url: "https://s10.vimeos.net/hls/x/master.m3u8", headers: {} }], subtitles: [], finalUrl: "" });
   try {
     const st = await plugin.resolve("ac|movie/603");
-    assert.equal(new URL(captured[0]).host, "vimeos.net");
-    assert.equal(st.label, "Latino · Vimeos");
-    assert.deepEqual(st.alternatives.map((a) => a.label), ["Latino · Goodstream"]);
+    assert.deepEqual(captured, []);
+    assert.match(st.url, /vimeos\.net\/hls2\//);
+    assert.equal(st.headers.Referer, "https://vimeos.net/");
   } finally {
-    delete pages[`${AC}/v1/playback/movie/603`];
+    delete pages["https://videoapp.zip/e/movie/603"];
+    delete pages["https://vimeos.net/embed-n1heuxm4500w.html"];
   }
 });
 
@@ -777,7 +817,8 @@ test("a Cloudflare challenge is read through the hidden browser, cached 5 min; H
     await plugin.slRead("/series?page=1");
     assert.equal(pagesRead.length, 1);
     assert.equal(pagesRead[0][1], 10000);
-    assert.equal(ttls.get("slpage:/series?page=1"), 5 * 60 * 1000);
+    // A catalog page (~230 KB) stays in the sandbox's memory, not in kino.storage.
+    assert.equal(store.has("slpage:/series?page=1"), false);
     await assert.rejects(plugin.slRead("/animes?page=1", { allowPage: false }), (e) => e.code === "unavailable");
     assert.equal(pagesRead.length, 1);
     assert.ok(reports.some((r) => r[1] === "cloudflare" && r[2] === "site=sl"));
@@ -821,27 +862,33 @@ test("numbering: Naruto's absolute numbering is detected and remapped onto TMDB'
   assert.equal(plugin.numberingStyle([{ season: 1, number: 1 }, { season: 2, number: 1 }]), "relative");
 });
 
-test("sololatino episodes: absolute shows get TMDB's seasons through allcalidad's data; Dark stays relative", async () => {
+test("sololatino episodes: absolute shows get TMDB's seasons through allcalidad's episodes; Dark stays relative", async () => {
   pages[`${SLB}/serie/naruto`] = fixture("sl-serie-naruto.html");
   pages[`${SLB}/serie/dark`] = fixture("sl-serie-dark.html");
-  const AC = "https://tmdb.allcalidad.re";
-  pages[`${AC}/v1/search?q=Naruto`] = JSON.stringify({ items: [{ kind: "anime", tmdb_id: 46260, title: "Naruto", imdb_id: "tt0409591" }] });
-  pages[`${AC}/v1/items/anime/46260`] = JSON.stringify({ item: { number_of_seasons: 4, episode_seasons: NARUTO_SEASONS } });
+  const search = `${ACAPI}/search?post_type=movies,tvshows,animes&query=Naruto&posts_per_page=16`;
+  pages[search] = JSON.stringify({ error: false, message: "", data: { posts: [
+    { _id: 22128, type: "animes", slug: "naruto-shippuden-2007", title: "Naruto Shippuden (2007)" },
+    { _id: 4993, type: "animes", slug: "naruto-2002", title: "Naruto (2002)" },
+  ] } });
+  const eps = (seasons) => JSON.stringify({ error: false, message: "", data: seasons.flatMap(({ season, count }) =>
+    Array.from({ length: count }, (_, i) => ({ _id: season * 1000 + i, season_number: season, episode_number: i + 1 }))) });
+  pages[`${ACAPI}/episodes?post_id=4993`] = eps(NARUTO_SEASONS);
   try {
     const n = await plugin.episodes("sl|/serie/naruto");
     assert.deepEqual(n.series.ids, { imdb: "tt0409591" });
     const e53 = n.episodes.find((e) => e.ref.endsWith("/temporada-2/episodio-53"));
     assert.deepEqual([e53.season, e53.number], [2, 1]);
-    // allcalidad listing only the seasons it has (measured: Naruto 1 of 4): no remap, the site's numbers stay.
+    // allcalidad listing only some seasons: no remap, the site's numbers stay.
     store.clear();
-    pages[`${AC}/v1/items/anime/46260`] = JSON.stringify({ item: { number_of_seasons: 4, episode_seasons: [{ season: 1, count: 52 }] } });
+    pages[`${ACAPI}/episodes?post_id=4993`] = eps([{ season: 1, count: 52 }]);
     const partial = await plugin.episodes("sl|/serie/naruto");
     assert.equal(partial.episodes.length, 219);
+    assert.ok(partial.episodes.some((e) => e.ref.endsWith("/temporada-2/episodio-53") && e.season === 2 && e.number === 53));
     const d = await plugin.episodes("sl|/serie/dark");
     assert.equal(d.episodes[0].ref, "sl|/serie/dark/temporada-1/episodio-1");
     assert.equal(plugin.numberingStyle(d.episodes), "relative");
   } finally {
-    for (const k of [`${SLB}/serie/naruto`, `${SLB}/serie/dark`, `${AC}/v1/search?q=Naruto`, `${AC}/v1/items/anime/46260`]) delete pages[k];
+    for (const k of [`${SLB}/serie/naruto`, `${SLB}/serie/dark`, search, `${ACAPI}/episodes?post_id=4993`]) delete pages[k];
   }
 });
 
@@ -883,9 +930,305 @@ test("Usar SoloLatino off: sololatino is never read", async () => {
   try {
     config.useSololatino = false;
     await plugin.search({ q: "dark" }).catch(() => []);
-    await plugin.home();
+    await plugin.home().catch(() => []);
     assert.ok(!asked.some((u) => u.startsWith(SLB)));
   } finally {
     kino.fetch = saved;
+  }
+});
+
+// ---------- 0.6.2: reading embed pages, devices without a browser, deadlines, art ----------
+
+const DARK_EP = "sk|/serie/dark/temporada/1/capitulo/1";
+const withVidurl = async (fn) => {
+  pages["https://serieskao.top/vidurl/tt5753856-1x01/"] = fixture("sk-vidurl-embed69.html");
+  try { return await fn(); } finally { delete pages["https://serieskao.top/vidurl/tt5753856-1x01/"]; }
+};
+const shrink = (o) => { const saved = { ...plugin.LIMITS }; Object.assign(plugin.LIMITS, o); return () => Object.assign(plugin.LIMITS, saved); };
+const never = () => new Promise(() => {});
+
+test("embed pages: vidhide, streamwish (hlswish) and vimeos unpack their playlists; goodstream's is in the clear; a deleted file says so", () => {
+  const vh = plugin.playlistsOf(fixture("emb-vidhide.html"), "https://morencius.com/embed/vr0ps5s4v6bw");
+  assert.equal(vh.playlists[0], "https://morencius.com/stream/TOKEN/abc/1791203159/1/master.m3u8"); // hls4, relative to the page
+  assert.equal(vh.playlists.length, 2); // hls4, hls2 (hls3 master.txt left out)
+  assert.deepEqual(vh.subtitles.map((s) => s.label), ["Español"]);
+  const sw = plugin.playlistsOf(fixture("emb-hlswish.html"), "https://hlswish.com/e/7vs4vkrnf7ma");
+  assert.match(sw.playlists[0], /^https:\/\/hlswish\.com\/stream\//);
+  assert.equal(plugin.playlistsOf(fixture("emb-vimeos.html"), "https://vimeos.net/e").playlists.length, 1);
+  assert.match(plugin.playlistsOf(fixture("emb-goodstream.html"), "https://goodstream.one/e").playlists[0], /goodstream\.one\/hls2\/.*master\.m3u8/);
+  const gone = plugin.playlistsOf(fixture("emb-gone.html"), "https://hlswish.com/e/x");
+  assert.deepEqual([gone.playlists.length, gone.gone], [0, true]);
+  assert.equal(plugin.unpackAll("<html>no packer</html>"), "");
+  assert.deepEqual(plugin.extractedHeaders("https://vimeos.net/embed-a.html", "https://s10.vimeos.net/x.m3u8"), { "User-Agent": plugin.UA, Referer: "https://vimeos.net/", Origin: "https://vimeos.net" });
+  assert.deepEqual(plugin.extractedHeaders("https://morencius.com/embed/a", "https://morencius.com/stream/x.m3u8"), { "User-Agent": plugin.UA, Referer: "https://morencius.com/" });
+});
+
+test("streamwish's hglink ids are read on hlswish: the page's playlist plays, the other two lists are concrete alternatives", async () => {
+  pages["https://hlswish.com/e/7vs4vkrnf7ma"] = fixture("emb-hlswish.html");
+  const saved = kino.fetch;
+  const referers = [];
+  kino.fetch = async (url, o = {}) => { if (url.startsWith("https://hlswish.com/")) referers.push(o.headers && o.headers.Referer); return saved(url, o); };
+  captured.length = 0;
+  try {
+    const st = await withVidurl(() => plugin.resolve(DARK_EP));
+    assert.deepEqual(captured, []);
+    assert.match(st.url, /^https:\/\/hlswish\.com\/stream\//);
+    assert.deepEqual(st.headers, { "User-Agent": plugin.UA, Referer: "https://hlswish.com/" });
+    assert.equal(st.label, "Latino · Streamwish");
+    assert.equal(st.expiresInSeconds > 0 || st.expiresInSeconds === undefined, true);
+    const concrete = st.alternatives.filter((a) => a.url);
+    assert.equal(concrete.length, 1);
+    assert.ok(concrete.every((a) => a.headers["User-Agent"] === plugin.UA && a.label === "Latino · Streamwish (otra lista)"));
+    assert.deepEqual(st.subtitles.map((s) => s.format), ["vtt"]);
+    assert.deepEqual(referers, ["https://embed69.org/"]); // read as embed69 frames it
+  } finally {
+    kino.fetch = saved;
+    delete pages["https://hlswish.com/e/7vs4vkrnf7ma"];
+  }
+});
+
+test("a device without a usable browser: learned once, later plays go straight to page-read servers, never a capture", async () => {
+  pages["https://morencius.com/embed/vr0ps5s4v6bw"] = fixture("emb-vidhide.html");
+  let calls = 0;
+  captureAnswer = async () => { calls++; throw Object.assign(new Error("none"), { code: "browser_unavailable" }); };
+  try {
+    // First play: streamwish's page is not readable here (404), its capture says browser_unavailable; vidhide's page plays.
+    const st = await withVidurl(() => plugin.resolve(DARK_EP));
+    assert.equal(calls, 1);
+    assert.match(st.url, /morencius\.com\/stream\//);
+    assert.ok(plugin.browserMissing());
+    assert.ok(reports.some((r) => r[0] === "maraton:browser" && r[1] === "unavailable"));
+    // Voe needs the hidden browser: not offered on this device.
+    assert.ok(!(st.alternatives || []).some((a) => /Voe/.test(a.label || "")));
+    store.delete(`stream:${DARK_EP}`);
+    const again = await withVidurl(() => plugin.resolve(DARK_EP));
+    assert.equal(calls, 1); // no capture tried again
+    assert.match(again.url, /morencius\.com/);
+  } finally {
+    delete pages["https://morencius.com/embed/vr0ps5s4v6bw"];
+  }
+});
+
+test("without a browser and only servers that need one, resolve says so; it never fails while a page-read server exists", async () => {
+  store.set("nobrowser", JSON.stringify({ at: 1 }));
+  captured.length = 0;
+  pages[`${ACAPI}/player?post_id=1&_any=1`] = JSON.stringify({ error: false, message: "", data: { embeds: [{ lang: "Latino", url: "https://voe.sx/e/x" }, { lang: "Latino", url: "https://filemoon.sx/e/y" }] } });
+  try {
+    await assert.rejects(plugin.resolve("ac|movies/1/x"), (e) => e.code === "unavailable" && /navegador/.test(e.userMessage));
+    assert.deepEqual(captured, []);
+    assert.ok(reports.some((r) => r[0] === "maraton:resolve" && r[1] === "no_browser"));
+  } finally {
+    delete pages[`${ACAPI}/player?post_id=1&_any=1`];
+  }
+});
+
+test("each server gets its own capture window; a page that gives up at once gets one second try; the budget is never exceeded", async () => {
+  const windows = [];
+  let n = 0;
+  captureAnswer = async (url, opts) => {
+    windows.push([new URL(url).host, opts.timeoutMs]);
+    if (n++ === 0) throw Object.assign(new Error("timeout"), { code: "timeout" }); // gave up after 0 ms
+    return { media: [{ url: "https://cdn.example/master.m3u8", headers: {} }], subtitles: [], finalUrl: "" };
+  };
+  const st = await withVidurl(() => plugin.resolve(DARK_EP));
+  assert.equal(st.url, "https://cdn.example/master.m3u8");
+  assert.deepEqual(windows, [["hglink.to", 22000], ["hglink.to", 22000]]);
+  // Voe's window is shorter (it plays at once or shows its human check).
+  assert.equal(plugin.captureWindow({ server: "voe", lang: "LAT", url: "https://voe.sx/e/1" }), 12000);
+  // A clock where each capture takes 30 s: resolve stops opening pages once less than the minimum is left.
+  const realNow = Date.now;
+  let fake = realNow();
+  Date.now = () => fake;
+  windows.length = 0;
+  captureAnswer = async (url, opts) => { windows.push(opts.timeoutMs); fake += 30000; throw Object.assign(new Error("timeout"), { code: "timeout" }); };
+  try {
+    store.clear();
+    await withVidurl(() => plugin.resolve(DARK_EP)).catch(() => {});
+    assert.ok(windows.length >= 2 && windows.length <= 3, String(windows));
+    assert.ok(windows.every((w) => w >= plugin.LIMITS.minCaptureMs && w <= 25000));
+    assert.ok(fake - realNow() <= plugin.LIMITS.resolveMs + 30000);
+  } finally {
+    Date.now = realNow;
+  }
+});
+
+test("a refused stream (403 retry) is never reused and its server goes to the back for the new search", async () => {
+  captureAnswer = async () => ({ media: [{ url: "https://cdn.example/master.m3u8", headers: { "User-Agent": "WV" } }], subtitles: [], finalUrl: "" });
+  await withVidurl(async () => {
+    const first = await plugin.resolve(DARK_EP);
+    assert.equal(first.label, "Latino · Streamwish");
+    captured.length = 0;
+    const again = await plugin.resolve(DARK_EP, { retry: { reason: "http", status: 403, attempt: 1 } });
+    assert.equal(again.label, "Latino · Vidhide"); // streamwish was refused: tried last now
+    assert.ok(plugin.failedServers("sk").has("streamwish"));
+    assert.ok(reports.some((r) => r[0] === "maraton:retry" && r[2] === "status=403" && r[3] === "server=streamwish"));
+  });
+});
+
+test("stream expiry: a path time or s/e in the query; unknown or cookie-bound streams are kept 10 minutes at most", () => {
+  const now = 1791092503;
+  assert.equal(plugin.expiresInOf(`https://cdn.example/hls2/x/master.m3u8?t=a&s=${now}&e=43200&v=1`, now), 43200);
+  assert.equal(plugin.expiresInOf(`https://cdn.example/x/master.m3u8?s=${now - 50000}&e=43200`, now), null); // already over
+  assert.equal(plugin.keepStreamMs({ url: "u" }), 10 * 60 * 1000);
+  assert.equal(plugin.keepStreamMs({ url: "u", expiresInSeconds: 43200 }), 4 * 3600 * 1000);
+  assert.equal(plugin.keepStreamMs({ url: "u", expiresInSeconds: 43200, headers: { Cookie: "a=b" } }), 10 * 60 * 1000);
+  assert.deepEqual(plugin.playHeaders({ "User-Agent": "WV", Cookie: "a=b" }, "https://site/"), { "User-Agent": "WV", Cookie: "a=b", Referer: "https://site/" });
+  assert.deepEqual(plugin.playHeaders({ referer: "https://e/" }, "https://site/"), { referer: "https://e/" });
+});
+
+test("home answers by its deadline with what is ready; a slow site shows its last good rows", async () => {
+  const restore = shrink({ homeMs: 150, rowFreshMs: 0 });
+  const saved = kino.fetch;
+  try {
+    pages["https://serieskao.top/series?page=1"] = fixture("sk-search-dark.html");
+    config.useAllcalidad = true;
+    // First, allcalidad answers: its rows are saved.
+    pages[`${ACAPI}/listing?page=1&post_type=movies&posts_per_page=24`] = fixture("ac2-listing-movies-1.json");
+    const first = await plugin.home();
+    assert.ok(first.find((r) => r.id === "ac-movies"));
+    // Then allcalidad hangs: home still answers in time, with its saved row.
+    kino.fetch = async (url, o) => (url.startsWith(ACAPI) ? never() : saved(url, o));
+    const t0 = Date.now();
+    const rows = await plugin.home();
+    assert.ok(Date.now() - t0 < 1000, `took ${Date.now() - t0} ms`);
+    assert.ok(rows.find((r) => r.id === "sk-serie"));
+    const ac = rows.find((r) => r.id === "ac-movies");
+    assert.ok(ac && ac.items.length === 4 && ac.items.every((i) => !i.overview)); // saved slim
+  } finally {
+    restore();
+    kino.fetch = saved;
+    delete pages["https://serieskao.top/series?page=1"];
+    delete pages[`${ACAPI}/listing?page=1&post_type=movies&posts_per_page=24`];
+  }
+});
+
+test("section's Géneros tab answers by its deadline even when every site hangs (a sentence, never 158 s)", async () => {
+  const restore = shrink({ homeMs: 150 });
+  const saved = kino.fetch;
+  kino.fetch = async () => never();
+  try {
+    const t0 = Date.now();
+    await assert.rejects(plugin.section({ tab: "generos" }), (e) => e.code === "unavailable");
+    assert.ok(Date.now() - t0 < 1000);
+  } finally {
+    restore();
+    kino.fetch = saved;
+  }
+});
+
+test("a site that keeps failing rests: list calls stop asking it for a while; a play still asks", async () => {
+  const saved = kino.fetch;
+  const asked = [];
+  kino.fetch = async (url) => { asked.push(url); throw Object.assign(new Error("timeout"), { code: "timeout" }); };
+  config.useAllcalidad = false;
+  try {
+    for (let i = 0; i < 3; i++) await plugin.search({ q: "dark" }).catch(() => {});
+    assert.ok(plugin.siteResting("sk"));
+    asked.length = 0;
+    await assert.rejects(plugin.search({ q: "dark" }), (e) => e.code === "unavailable");
+    assert.equal(asked.length, 0);
+    await plugin.resolve(DARK_EP).catch(() => {});
+    assert.ok(asked.length > 0);
+    assert.match((await plugin.settingsStatus()).state, /en pausa: SeriesKao/);
+  } finally {
+    kino.fetch = saved;
+  }
+});
+
+test("search: a site that does not answer in time is left out, never waited for", async () => {
+  const restore = shrink({ searchMs: 120 });
+  const saved = kino.fetch;
+  kino.fetch = async (url, o) => (url.startsWith(ACAPI) ? never() : saved(url, o));
+  try {
+    const t0 = Date.now();
+    const found = await plugin.search({ q: "dark" });
+    assert.ok(Date.now() - t0 < 1000);
+    assert.ok(found.length > 0 && found.every((i) => i.ref.startsWith("sk|")));
+  } finally {
+    restore();
+    kino.fetch = saved;
+  }
+});
+
+test("embed69: a title it does not list is quiet; a changed page is reported; sololatino falls back to its own page", async () => {
+  assert.deepEqual(plugin.embed69Answer(fixture("embed69-not-listed.json")), { servers: [], why: "not_listed" });
+  assert.equal(plugin.embed69Answer("<html>dataLink = [];</html>").why, "no_key");
+  assert.equal(plugin.embed69Answer(fixture("sl-embed69-f-dark-1x01.html")).why, "ok");
+  config.useSololatino = true;
+  const saved = kino.fetch;
+  kino.fetch = async (url, o = {}) => {
+    if (url === `${SLB}/serie/dark/temporada-1/episodio-1`) return { ok: true, status: 200, text: () => fixture("sl-ep-dark-1x01.html") };
+    if (url === `${SLB}/sanctum/csrf-cookie`) return { ok: true, status: 204, text: () => "" };
+    if (url === `${SLB}/api/player-url`) return { ok: true, status: 200, text: () => "", json: () => ({ url: "https://embed69.org/f/tt5753856-1x01" }) };
+    if (url === "https://embed69.org/f/tt5753856-1x01") return { ok: true, status: 200, text: () => fixture("embed69-not-listed.json") };
+    return saved(url, o);
+  };
+  captured.length = 0;
+  captureAnswer = async () => ({ media: [{ url: "https://cdn.example/master.m3u8", headers: {} }], subtitles: [], finalUrl: "" });
+  try {
+    const st = await plugin.resolve("sl|/serie/dark/temporada-1/episodio-1");
+    assert.equal(st.url, "https://cdn.example/master.m3u8");
+    assert.deepEqual(captured, [`${SLB}/serie/dark/temporada-1/episodio-1`]);
+    assert.deepEqual(st.headers, { Referer: "https://sololatino.net/" });
+    assert.ok(!reports.some((r) => r[0] === "maraton:embed69"));
+  } finally {
+    kino.fetch = saved;
+  }
+});
+
+test("categories: art from the saved genres at once; the missing ones looked up within ~3 s; a hanging site never slows the tiles", async () => {
+  store.set("art:drama", JSON.stringify({ art: "https://allcalidad.re/wp-content/uploads/backdrops/d.webp" }));
+  pages[ACG] = fixture("ac2-genre-drama-1.json");
+  const restore = shrink({ artMs: 200 });
+  const saved = kino.fetch;
+  try {
+    // accion's lookup answers (perPage 4 is asked for: the URL differs from the browse one)
+    pages[`${ACAPI}/listing?tax=genres&term=accion&page=1&post_type=movies,tvshows,animes&posts_per_page=4`] = fixture("ac2-genre-drama-1.json");
+    const tiles = await plugin.categories();
+    assert.equal(tiles.length, 22);
+    assert.equal(tiles.find((t) => t.id === "genre-drama").art, "https://allcalidad.re/wp-content/uploads/backdrops/d.webp");
+    assert.match(tiles.find((t) => t.id === "genre-accion").art, /^https:\/\/allcalidad\.re\/wp-content\/uploads\/backdrops\//);
+    assert.equal(tiles.find((t) => t.id === "genre-dorama").art, undefined); // serieskao only: no lookup
+    assert.equal(ttls.get("art:accion"), 24 * 3600 * 1000);
+    // allcalidad hangs: the tiles come back in time, with the art already known and none for the rest.
+    store.clear();
+    store.set("art:drama", JSON.stringify({ art: "https://allcalidad.re/wp-content/uploads/backdrops/d.webp" }));
+    kino.fetch = async () => never();
+    const t0 = Date.now();
+    const cold = await plugin.categories();
+    assert.ok(Date.now() - t0 < 1000, `took ${Date.now() - t0} ms`);
+    assert.equal(cold.length, 22);
+    assert.deepEqual(cold.filter((t) => t.art).map((t) => t.id), ["genre-drama"]);
+  } finally {
+    restore();
+    kino.fetch = saved;
+    delete pages[ACG];
+    delete pages[`${ACAPI}/listing?tax=genres&term=accion&page=1&post_type=movies,tvshows,animes&posts_per_page=4`];
+  }
+});
+
+test("within: the fallback after the deadline, and a late rejection never escapes", async () => {
+  assert.equal(await plugin.within(never(), 20, "late"), "late");
+  assert.equal(await plugin.within(Promise.resolve(1), 20, "late"), 1);
+  await assert.rejects(plugin.within(Promise.reject(Object.assign(new Error("x"), { code: "timeout" })), 50), (e) => e.code === "timeout");
+  const lateFail = new Promise((_, rej) => setTimeout(() => rej(new Error("late")), 30));
+  assert.equal(await plugin.within(lateFail, 5, "ok"), "ok");
+  await new Promise((r) => setTimeout(r, 50)); // the rejection lands with a handler attached: no unhandledRejection
+});
+
+test("an embed host that does not answer is skipped at once: no hidden page for it, the next server plays", async () => {
+  const saved = kino.fetch;
+  kino.fetch = async (url, o) => (url.startsWith("https://hlswish.com/") ? Promise.reject(Object.assign(new Error("timeout"), { code: "timeout" })) : saved(url, o));
+  pages["https://morencius.com/embed/vr0ps5s4v6bw"] = fixture("emb-vidhide.html");
+  captured.length = 0;
+  try {
+    const st = await withVidurl(() => plugin.resolve(DARK_EP));
+    assert.deepEqual(captured, []); // streamwish's host is down: its capture would not load either
+    assert.equal(st.label, "Latino · Vidhide");
+    assert.ok(plugin.failedServers("sk").has("streamwish"));
+    assert.ok(reports.some((r) => r[0] === "maraton:extract" && r[1] === "host_down" && r[2] === "server=streamwish"));
+  } finally {
+    kino.fetch = saved;
+    delete pages["https://morencius.com/embed/vr0ps5s4v6bw"];
   }
 });

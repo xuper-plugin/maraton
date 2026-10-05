@@ -1,0 +1,281 @@
+<HTML>
+<HEAD>
+<meta content='width=device-width,initial-scale=1.0,minimum-scale=1.0,maximum-scale=1.0' name='viewport'/>
+<link rel="stylesheet" href="https://goodstream.one/css/main.css">
+<script src="https://goodstream.one/js/jquery.min.js" type="cfc8521b00a18a97c2b9afe4-text/javascript"></script>
+<script src="https://goodstream.one/js/xupload.js" type="cfc8521b00a18a97c2b9afe4-text/javascript"></script>
+<script src="https://goodstream.one/js/jquery.cookie.js" type="cfc8521b00a18a97c2b9afe4-text/javascript"></script>
+<script type="cfc8521b00a18a97c2b9afe4-text/javascript">
+$.cookie('file_id', '129178', { expires: 10 });
+$.cookie('aff', '64', { expires: 10 });
+$.cookie('ref_url', 'allcalidad.re', { expires: 10 });
+</script>
+</HEAD>
+<BODY topmargin=0 leftmargin=0 style="background:transparent;">
+
+
+<style>
+.a889085 {display:none;z-index: 999;position: fixed;top:0;left:0;width:100%;height:100%;font:15px Verdana;text-align:center;color:#FFF;background: #000;background-color: rgba(0,0,0,.85);}
+.b889085 {position:absolute;top:47%;left:50%;margin-left:-200px;width:400px;padding: 30px;background-color: rgba(0,0,0,.3);border-radius: 15px;}
+</style>
+
+<script type="cfc8521b00a18a97c2b9afe4-text/javascript">
+function showADBOverlay(){
+	$('<div class="a889085" oncontextmenu="return false;"><div class="b889085">Disable ADBlock to watch the video!</div></div>').appendTo('body').show();
+}
+
+function setADBFlag()
+{
+	window.adbon=1;
+
+	
+
+	jwplayer().stop();
+}
+</script>
+
+
+
+
+<script src="/js2/noadblocker.js" type="cfc8521b00a18a97c2b9afe4-text/javascript"></script>
+<!--script>
+setTimeout("checkADB()", 1000);
+function checkADB()
+{
+ if( window.cRAds === undefined ){ showADBOverlay(); }
+}
+</script-->
+
+
+
+
+
+    <div style="position:relative;">
+    
+        <!-- Over player banner ADs code start here -->
+
+        <!-- Over player banner ADs code end here -->
+    
+
+          <div id="play_limit_box">
+            <a href="https://goodstream.one/premium.html" target="_blank">Upgrade you account</a> to watch videos with no limits!
+          </div>
+
+    <script type="cfc8521b00a18a97c2b9afe4-text/javascript" src='/player/jw8/jwplayer.js?v='></script>
+				<script type="cfc8521b00a18a97c2b9afe4-text/javascript">jwplayer.key="Z8lq0BAJBEu//qi4oQ7e5kmmCB4pOlIsjYLVL95r9jE=";</script>
+				<style>
+					.jw-nextup-container{display:none !important; }
+					.jw-share-item, .jw-info-overlay-item, .jw-stats-item{display:none !important;}
+					.jw-display-icon-container .jw-icon-inline { display: none !important; } /*hide rewind+forward big buttons*/
+					.jw-button-container .jw-icon-rewind {display:none !important;}
+					.jw-display-icon-rewind { xdisplay: block !important; }
+					.jw-featured, .jw-rightclick { display:none !important; }
+				</style>
+
+				<div id="resume-modal" style="color:#fff; font-family:Roboto, Arial; display:none; padding:2rem; justify-content:center; align-items:center; position:absolute; top:0; left:0; right:0; bottom:0; background-color: rgba(0,0,0,.7); font-size: 12px; z-index:200;">
+				  <div style="max-width:420px; background-color: rgba(18, 27, 48, .5); backdrop-filter:blur(20px); text-align:center;padding:1.5rem; border-radius:8px;">
+				    <h5 style="margin-bottom:10px;font-weight:bold; font-size:15px;">Resume playing?</h5>
+				    <p style="margin-bottom:10px;opacity:.65" id="resume-text"></p>
+				    <div style="display:flex;gap:.4rem; align-items-center;justify-content:center">
+				      <button onclick="if (!window.__cfRLUnblockHandlers) return false; resumeVideo()" style="border:0;cursor:pointer;border-radius:5px; padding:.35rem .5rem; color:#fff;background: linear-gradient(90deg, #4949E7 0%, #51E3C0 100%);color:#fff" data-cf-modified-cfc8521b00a18a97c2b9afe4-="">Yes, please</button>
+				      <button onclick="if (!window.__cfRLUnblockHandlers) return false; cancelResume()" style="border:0;cursor:pointer;border-radius:5px;padding:.35rem .5rem; color:#fff;background:#1C263E;color:#fff" data-cf-modified-cfc8521b00a18a97c2b9afe4-="">No, thanks</button>
+				    </div>
+				  </div>
+				</div>
+
+				<script src="/js/localstorage-slim.js" type="cfc8521b00a18a97c2b9afe4-text/javascript"></script>
+				<div id='vplayer' style="width:100%;height:100%;text-align:center;"><img src="https://s2.goodstream.one/i/01/00025/vqp2pcmwqqmb_x.jpg" style="width:100%;height:100%;"></div>
+
+    </div>
+
+
+
+
+<script type="cfc8521b00a18a97c2b9afe4-text/javascript">
+  jwplayer("vplayer").setup({
+		skin: {
+	    url:"/css2/jw8-theme.css?55",
+	    name: "jw8-theme"
+	  },
+    sources: [{file:"https://hls1.goodstream.one/hls2/01/00025/vqp2pcmwqqmb_,l,n,h,.urlset/master.m3u8?t=X&s=X&e=43200&v=X&srv=X&i=X&sp=0"}],
+    image: "https://s2.goodstream.one/i/01/00025/vqp2pcmwqqmb_x.jpg",
+    width: "100%",
+    height: "100%",
+    stretching: "uniform",
+    duration: "8169.90",
+    fullscreenOrientationLock: "none",
+    //aspectratio: "16:9",
+    preload: 'auto',
+    advertising: { loadVideoTimeout: 30000, requestTimeout: 30000, vastLoadTimeout: 30000 },
+    //displayPlaybackLabel: true,
+    horizontalVolumeSlider: true,
+    //allowFullscreen: false,
+    //"autoPause": { "viewability": true, "pauseAds": true },
+    //skin: {controlbar: {text:"#6F6", icons:"#6F6"}, timeslider:{progress:"#6F6"}, menus:{text:"#6F6"} },
+    //pipIcon: 'disabled',
+    androidhls: "true"
+    ,tracks: [{file: "https://s2.goodstream.one/vtt/01/00025/vqp2pcmwqqmb_sli.vtt", kind: "thumbnails"}]
+    ,captions: {
+	    			userFontScale: 1,
+	    			color: '#FFFFFF',
+	    			backgroundColor: '#303030',
+	    			fontFamily:"Tahoma",
+	    			backgroundOpacity: 30,
+	    			fontOpacity: '100',
+    			},"sharing": {code: "%3CIFRAME SRC%3D%22https%3A%2F%2Fgoodstream.one%2Fembed-vqp2pcmwqqmb.html%22 FRAMEBORDER%3D0 MARGINWIDTH%3D0 MARGINHEIGHT%3D0 SCROLLING%3DNO WIDTH%3D640 HEIGHT%3D360 allowfullscreen%3E%3C%2FIFRAME%3E", link: "https://goodstream.one/vqp2pcmwqqmb", sites: [] },"advertising": {"tag": "https://cvt-s2.agl003.com/v/_jMvMjk5MDQ4ZTUtO-EzNSWWYzYxL-EyZDUtNGNmM2IWNmE1NTBl.xml?cp.host=94077da8ba214d4d91fdf58e7cffceec%7Cgoodstream.one&cp.domain=goodstream.one",  "client": "vast", "vpaidmode": "enabled"},'qualityLabels':{"1758":"720p","778":"480p","442":"360p"},abouttext:"XVideoSharing", aboutlink:"https://xvs.tt/premium",cast: {},playbackRateControls: true, playbackRates: [1, 1.25, 1.5, 2]
+  });
+var vvplay,vvad;
+var vastdone1=0,vastdone2=0;
+var player = jwplayer();
+var prevt=0, tott=0, v2done=0, lastt=0;
+$.ajaxSetup({ headers: { 'Content-Cache': 'no-cache' } });
+player.on('time', function(x) {
+    if(5>0 && x.position>=5 && vvad!=1){vvad=1;$('div.video_ad_fadein').fadeIn('slow');}
+    if(x.position>=2450 && vastdone1==0){ vastdone1=1; jwplayer().loadAdTag('https://cvt-s2.agl003.com/v/_jMvNGI3NmZmMjUtMDQ4OSWWNDhiLTg4NDUtMDE1ZjAyZGU3YzU4.xml?cp.host=94077da8ba214d4d91fdf58e7cffceec%7Cgoodstream.one&cp.domain=goodstream.one'); }
+    if(x.position>=lastt+5 || x.position<lastt){ lastt=x.position; ls.set('ttvqp2pcmwqqmb', Math.round(lastt), { ttl: 60*60*24*7 }); }
+});
+player.on('seek', function(x) { prevt=x.position; });
+player.on('play', function(x) { doPlay(x); });
+player.on('complete', function() { $('div.video_ad').show(); ls.remove('ttvqp2pcmwqqmb'); });
+player.on('pause', function(x) {  });
+//player.on('all', function(x) { console.log(x); });
+
+function doPlay(x)
+{
+  $('div.video_ad').hide();
+  $('#over_player_msg').hide();
+  if(vvplay)return;
+  vvplay=1;
+
+  
+
+  if(''=='')return;
+  adb=0;
+  //if( window.cRAds === undefined ){ adb=1; }
+  if( window.adbon == 1 ){ adb=1; }
+  $.get('/dl?op=view&view_id=398299737&hash=1791159956-e798505c5498f2503dc4b89c090590e2&adb='+adb, function(data) {console.log('view:'+data);} );
+
+}
+
+function set_audio_track()
+{
+  var tracks=player.getAudioTracks(track_name);
+  console.log(tracks);
+  if(tracks.length>1){
+  	for(i=0;i<tracks.length;i++){ if(tracks[i].name==track_name){ console.log('!!='+i); player.setCurrentAudioTrack(i); } }
+  }
+}
+
+
+var lastt = ls.get('ttvqp2pcmwqqmb');
+
+    player.on('ready', function(){
+				if(lastt>0){
+					showResumeModal(lastt);
+				}
+    		jwplayer().addButton(
+    '<svg xmlns="http://www.w3.org/2000/svg" class="jw-svg-icon jw-svg-icon-rewind2" viewBox="0 0 240 240" focusable="false"><path d="m 25.993957,57.778 v 125.3 c 0.03604,2.63589 2.164107,4.76396 4.8,4.8 h 62.7 v -19.3 h -48.2 v -96.4 H 160.99396 v 19.3 c 0,5.3 3.6,7.2 8,4.3 l 41.8,-27.9 c 2.93574,-1.480087 4.13843,-5.04363 2.7,-8 -0.57502,-1.174985 -1.52502,-2.124979 -2.7,-2.7 l -41.8,-27.9 c -4.4,-2.9 -8,-1 -8,4.3 v 19.3 H 30.893957 c -2.689569,0.03972 -4.860275,2.210431 -4.9,4.9 z m 163.422413,73.04577 c -3.72072,-6.30626 -10.38421,-10.29683 -17.7,-10.6 -7.31579,0.30317 -13.97928,4.29374 -17.7,10.6 -8.60009,14.23525 -8.60009,32.06475 0,46.3 3.72072,6.30626 10.38421,10.29683 17.7,10.6 7.31579,-0.30317 13.97928,-4.29374 17.7,-10.6 8.60009,-14.23525 8.60009,-32.06475 0,-46.3 z m -17.7,47.2 c -7.8,0 -14.4,-11 -14.4,-24.1 0,-13.1 6.6,-24.1 14.4,-24.1 7.8,0 14.4,11 14.4,24.1 0,13.1 -6.5,24.1 -14.4,24.1 z m -47.77056,9.72863 v -51 l -4.8,4.8 -6.8,-6.8 13,-12.99999 c 3.02543,-3.03598 8.21053,-0.88605 8.2,3.4 v 62.69999 z"></path></svg>',
+    "Forward 10 sec",
+    function() {
+        jwplayer().seek( jwplayer().getPosition()+10 );
+    },
+    "ff11"
+);
+$("div[button=ff11]").detach().insertAfter('.jw-icon-rewind');
+
+jwplayer().addButton(
+    '<svg xmlns="http://www.w3.org/2000/svg" class="jw-svg-icon jw-svg-icon-rewind" viewBox="0 0 240 240" focusable="false"><path d="M113.2,131.078a21.589,21.589,0,0,0-17.7-10.6,21.589,21.589,0,0,0-17.7,10.6,44.769,44.769,0,0,0,0,46.3,21.589,21.589,0,0,0,17.7,10.6,21.589,21.589,0,0,0,17.7-10.6,44.769,44.769,0,0,0,0-46.3Zm-17.7,47.2c-7.8,0-14.4-11-14.4-24.1s6.6-24.1,14.4-24.1,14.4,11,14.4,24.1S103.4,178.278,95.5,178.278Zm-43.4,9.7v-51l-4.8,4.8-6.8-6.8,13-13a4.8,4.8,0,0,1,8.2,3.4v62.7l-9.6-.1Zm162-130.2v125.3a4.867,4.867,0,0,1-4.8,4.8H146.6v-19.3h48.2v-96.4H79.1v19.3c0,5.3-3.6,7.2-8,4.3l-41.8-27.9a6.013,6.013,0,0,1-2.7-8,5.887,5.887,0,0,1,2.7-2.7l41.8-27.9c4.4-2.9,8-1,8,4.3v19.3H209.2A4.974,4.974,0,0,1,214.1,57.778Z"></path></svg>',
+    "Rewind 10 sec",
+    function() {
+    	var tt = jwplayer().getPosition()-10;
+    	if(tt<0)tt=0;
+        jwplayer().seek( tt );
+    },
+    "ff00"
+);
+$("div[button=ff00]").detach().insertBefore('.jw-icon-playback');
+$("div.jw-icon-rewind").hide();
+
+    });
+
+
+		function showResumeModal(time) {
+			const minutes = Math.floor(time / 60);
+			const seconds = Math.floor(time % 60).toString().padStart(2, '0');
+			document.getElementById("resume-text").textContent = 'Welcome back! You left off at '+ minutes +':'+ seconds +'. Would you like to resume watching where you left off?';
+			document.getElementById("resume-modal").style.display = 'flex';
+		}
+
+		function resumeVideo() {
+			player.seek(lastt);
+			player.play();
+			document.getElementById("resume-modal").style.display = 'none';
+		}
+
+		function cancelResume() {
+			document.getElementById("resume-modal").style.display = 'none';
+			ls.set('ttvqp2pcmwqqmb', '');
+		}
+
+
+
+		player.on("audioTracks",function(event){
+			var tracks=player.getAudioTracks();
+			if(tracks.length<2)return;
+			$('.jw-settings-topbar-buttons').mousedown(function() {
+			$('#jw-settings-submenu-audioTracks').removeClass('jw-settings-submenu-active');
+			$('.jw-submenu-audioTracks').attr('aria-expanded','false');
+		});
+		player.addButton("/images/dualy.svg","Audio Track",function(){
+			$('.jw-controls').toggleClass('jw-settings-open');
+			$('.jw-settings-captions, .jw-settings-playbackRates').attr('aria-checked','false');
+			if( $('.jw-controls').hasClass('jw-settings-open') ){
+				$('.jw-submenu-audioTracks').attr('aria-checked','true');
+				$('.jw-submenu-audioTracks').attr('aria-expanded','true');
+				$('.jw-settings-submenu-quality').removeClass('jw-settings-submenu-active');
+				$('.jw-settings-submenu-audioTracks').addClass('jw-settings-submenu-active');
+			}
+			else {
+				$('.jw-submenu-audioTracks').attr('aria-checked','false');
+				$('.jw-submenu-audioTracks').attr('aria-expanded','false');
+				$('.jw-settings-submenu-audioTracks').removeClass('jw-settings-submenu-active');
+			}
+		},"dualSound");
+		
+		if( !localStorage.getItem('default_audio') ) setTimeout("audio_set('Español')", 300 );
+	});
+	var current_audio;
+	function audio_set(audio_name)
+	{
+		var tracks=player.getAudioTracks();
+		if(tracks.length>1){
+			for(i=0;i<tracks.length;i++){ if(tracks[i].name==audio_name){ if(i==current_audio){return;} current_audio=i; player.setCurrentAudioTrack(i); } }
+		}
+	}
+
+
+
+</script>
+
+
+
+
+<Script type="cfc8521b00a18a97c2b9afe4-text/javascript">
+$(function() {
+ 
+});
+</Script>
+
+
+
+
+<!-- Javascript Alt Ads code start -->
+	
+	
+	
+<!-- Javascript Alt Ads code end -->
+
+
+<script src="/cdn-cgi/scripts/7d0fa10a/cloudflare-static/rocket-loader.min.js" data-cf-settings="cfc8521b00a18a97c2b9afe4-|49" defer></script></BODY></HTML>
+
+</BODY></HTML>

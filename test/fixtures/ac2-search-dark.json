@@ -1,0 +1,177 @@
+{
+ "error": false,
+ "message": "",
+ "data": {
+  "posts": [
+   {
+    "_id": 57298,
+    "title": "A Tale Dark &amp; Grimm (2021)",
+    "overview": "Aún no hemos añadido una sinopsis para este título. <br />¡Gracias por tu paciencia! Estamos trabajando para agregarla pronto.",
+    "slug": "a-tale-dark-grimm-2021",
+    "images": {
+     "poster": "/thumbs/c3d12b6578e8e6d77a43febba14b4e4f_hd.webp",
+     "backdrop": "/backdrops/c3d12b6578e8e6d77a43febba14b4e4f.webp",
+     "logo": "/logos/c3d12b6578e8e6d77a43febba14b4e4f.webp"
+    },
+    "trailer": "F3akS9YsmfU",
+    "rating": "7.0",
+    "genres": [
+     51,
+     52,
+     216,
+     677,
+     695
+    ],
+    "quality": [
+     61854
+    ],
+    "years": [
+     1442
+    ],
+    "type": "tvshows",
+    "release_date": "2021-10-08",
+    "last_update": "2026-07-12 13:57:07",
+    "vote_count": "",
+    "runtime": "0.0",
+    "original_title": "A Tale Dark & Grimm",
+    "gallery": "",
+    "tagline": ""
+   },
+   {
+    "_id": 54884,
+    "title": "Dark Places (2026)",
+    "overview": "Aún no hemos añadido una sinopsis para este título. <br />¡Gracias por tu paciencia! Estamos trabajando para agregarla pronto.",
+    "slug": "dark-places-2026",
+    "images": {
+     "poster": "/thumbs/75e26359e98e31147cac1e878c799047_hd.webp",
+     "backdrop": "/backdrops/75e26359e98e31147cac1e878c799047.webp",
+     "logo": "/logos/75e26359e98e31147cac1e878c799047.webp"
+    },
+    "trailer": "VpK8QbnVDKQ",
+    "rating": "0.0",
+    "genres": [
+     447
+    ],
+    "quality": [
+     61855,
+     61863
+    ],
+    "years": [
+     78389
+    ],
+    "type": "movies",
+    "release_date": "2026-03-06",
+    "last_update": "2026-05-11 04:42:53",
+    "vote_count": "0",
+    "runtime": "0.0",
+    "original_title": "Dark Places",
+    "gallery": "",
+    "tagline": ""
+   },
+   {
+    "_id": 53895,
+    "title": "A Dark Truth (2012)",
+    "overview": "Aún no hemos añadido una sinopsis para este título. <br />¡Gracias por tu paciencia! Estamos trabajando para agregarla pronto.",
+    "slug": "a-dark-truth-2012",
+    "images": {
+     "poster": "/thumbs/04ed45da9287664f29972f18ad3ab0b8_hd.webp",
+     "backdrop": "/backdrops/04ed45da9287664f29972f18ad3ab0b8.webp",
+     "logo": "/logos/04ed45da9287664f29972f18ad3ab0b8.webp"
+    },
+    "trailer": "54hZzO-QPkM",
+    "rating": "5.5",
+    "genres": [
+     26,
+     295
+    ],
+    "quality": [
+     61855,
+     61856
+    ],
+    "years": [
+     1151
+    ],
+    "type": "movies",
+    "release_date": "2012-11-29",
+    "last_update": "2026-03-30 01:19:14",
+    "vote_count": "118",
+    "runtime": "106.0",
+    "original_title": "A Dark Truth",
+    "gallery": "",
+    "tagline": ""
+   },
+   {
+    "_id": 42028,
+    "title": "Home Before Dark (2020)",
+    "overview": "Cuando una niña y su familia se mudan al pequeño pueblo natal de su padre, su búsqueda de la verdad la lleva a desenterrar un viejo caso sin resolver. Un misterio basado en las investigaciones reales de una reportera de nueve años.",
+    "slug": "home-before-dark-2020",
+    "images": {
+     "poster": "/thumbs/859cda053f0ed635b7b2955de80726d1_hd.webp",
+     "backdrop": "/backdrops/859cda053f0ed635b7b2955de80726d1.webp",
+     "logo": "/logos/859cda053f0ed635b7b2955de80726d1.webp"
+    },
+    "trailer": "jsONbsXCuSg",
+    "rating": "7.6",
+    "genres": [
+     156,
+     273
+    ],
+    "quality": [
+     61854
+    ],
+    "years": [
+     2260
+    ],
+    "type": "tvshows",
+    "release_date": "2020-04-03",
+    "last_update": "2025-12-17 04:08:03",
+    "vote_count": "",
+    "runtime": "0.0",
+    "original_title": "Home Before Dark",
+    "gallery": "",
+    "tagline": ""
+   },
+   {
+    "_id": 41641,
+    "title": "Dark (2017)",
+    "overview": "Tras la desaparición de un joven, cuatro familias desesperadas tratan de entender lo ocurrido a medida que van desvelando un retorcido misterio que abarca tres décadas... Saga familiar con un giro sobrenatural, \"Dark\" se sitúa en un pueblo alemán, donde dos misteriosas desapariciones dejan al descubierto las dobles vidas y las relaciones resquebrajadas entre estas cuatro familias.",
+    "slug": "dark-2017",
+    "images": {
+     "poster": "/thumbs/45ebbcb5660836c30d4ace204244127c_hd.webp",
+     "backdrop": "/backdrops/45ebbcb5660836c30d4ace204244127c.webp",
+     "logo": "/logos/45ebbcb5660836c30d4ace204244127c.webp"
+    },
+    "trailer": "ESEUoa-mz2c",
+    "rating": "8.4",
+    "genres": [
+     135,
+     156,
+     273,
+     658
+    ],
+    "quality": [
+     61854
+    ],
+    "years": [
+     1183
+    ],
+    "type": "tvshows",
+    "release_date": "2017-12-01",
+    "last_update": "2025-11-29 21:08:03",
+    "vote_count": "",
+    "runtime": "0.0",
+    "original_title": "Dark",
+    "gallery": "",
+    "tagline": ""
+   }
+  ],
+  "pagination": {
+   "current_page": 1,
+   "last_page": 3,
+   "per_page": 6,
+   "total": 14,
+   "next_page_url": "https://allcalidad.re/api/rest/search?page=2",
+   "prev_page_url": null
+  }
+ }
+}

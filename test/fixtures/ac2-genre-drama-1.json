@@ -1,0 +1,142 @@
+{
+ "error": false,
+ "message": "",
+ "data": {
+  "term": 200,
+  "posts": [
+   {
+    "_id": 70314,
+    "title": "Mentes Criminales (2005)",
+    "overview": "Narra las investigaciones de un equipo del FBI que estudia el perfil psicológico de los criminales más importantes de los Estados Unidos para poder capturarlos. Los agentes especiales Jason Giseon (Mandy Patinkin) y Aaron Hotchner (Thomas Gibson) dirigen el equipo. Cada agente tiene su especialidad. Elle Greenway (Lola Glaudini) tiene una larga experiencia en delitos sexuales, Derek Morgan (Shemar Moore) es un experto en crímenes de carácter obsesivo. Spencer Reid (Mathew Gray Gubler) es un genio incomprendido, cuya torpeza para las relaciones sociales es tan sobresaliente como su cociente intelectual. Y, finalmente, está Jennifer, la novata.",
+    "slug": "mentes-criminales-2005",
+    "images": {
+     "poster": "/thumbs/4b04b0dcd2ade339a3d7ce13252a29d4_hd.webp",
+     "backdrop": "/backdrops/4b04b0dcd2ade339a3d7ce13252a29d4.webp",
+     "logo": "/logos/4b04b0dcd2ade339a3d7ce13252a29d4.webp"
+    },
+    "trailer": "NTYxiJBbEZk",
+    "rating": "8.3",
+    "genres": [
+     135,
+     156,
+     273
+    ],
+    "quality": [
+     61854
+    ],
+    "years": [
+     315
+    ],
+    "type": "tvshows",
+    "release_date": "2005-09-22",
+    "last_update": "2026-10-04 18:42:07",
+    "vote_count": "",
+    "runtime": "0.0",
+    "original_title": "Criminal Minds",
+    "gallery": "",
+    "tagline": ""
+   },
+   {
+    "_id": 70286,
+    "title": "Neagley (2026)",
+    "overview": "Del universo de REACHER, comienza un nuevo capítulo. Frances Neagley es una investigadora privada en Chicago y excompañera militar de Jack Reacher en la Unidad 110 de Investigaciones Especiales del Ejército. Al enterarse de que un querido amigo de su pasado murió en un accidente sospechoso, no se detendrá hasta hacer justicia.",
+    "slug": "neagley-2026",
+    "images": {
+     "poster": "/thumbs/356e0e745286e6176c535f30895fc521_hd.webp",
+     "backdrop": "/backdrops/356e0e745286e6176c535f30895fc521.webp",
+     "logo": "/logos/356e0e745286e6176c535f30895fc521.webp"
+    },
+    "trailer": "BOzNaa_o9_g",
+    "rating": "8.0",
+    "genres": [
+     135,
+     156,
+     273
+    ],
+    "quality": [
+     61854
+    ],
+    "years": [
+     78389
+    ],
+    "type": "tvshows",
+    "release_date": "2026-09-16",
+    "last_update": "2026-09-23 03:16:08",
+    "vote_count": "",
+    "runtime": "0.0",
+    "original_title": "Neagley",
+    "gallery": "",
+    "tagline": ""
+   },
+   {
+    "_id": 70276,
+    "title": "Monstruo: La historia de Lizzie Borden (2026)",
+    "overview": "Atrapada en un hogar cruel de la era victoriana, Lizzie Borden mata a sus padres de forma grotesca con un hacha, en un homicidio que conmocionó a la nación.",
+    "slug": "monstruo-la-historia-de-lizzie-borden-2026",
+    "images": {
+     "poster": "/thumbs/5952370b8e674b46962a0e718da8d1f2_hd.webp",
+     "backdrop": "/backdrops/5952370b8e674b46962a0e718da8d1f2.webp",
+     "logo": "/logos/5952370b8e674b46962a0e718da8d1f2.webp"
+    },
+    "trailer": "gYTzF1vna40",
+    "rating": "7.1",
+    "genres": [
+     135,
+     156
+    ],
+    "quality": [
+     61854
+    ],
+    "years": [
+     78389
+    ],
+    "type": "tvshows",
+    "release_date": "2026-09-17",
+    "last_update": "2026-09-23 02:58:10",
+    "vote_count": "",
+    "runtime": "0.0",
+    "original_title": "Monster: The Lizzie Borden Story",
+    "gallery": "",
+    "tagline": ""
+   },
+   {
+    "_id": 70273,
+    "title": "Hasta el Fin del Mundo (2026)",
+    "overview": "La vida de Manuel da un vuelco cuando Esmeralda, su amor perdido de hace quince años, lo llama inesperadamente. A pesar de estar a punto de casarse con otra persona, él se reencontrará con Esmeralda y ambos se darán cuenta de que su amor trasciende el tiempo.",
+    "slug": "hasta-el-fin-del-mundo-2026",
+    "images": {
+     "poster": "/thumbs/73f6ce5845ff920a177a7ae90af98a70_hd.webp",
+     "backdrop": "/backdrops/73f6ce5845ff920a177a7ae90af98a70.webp",
+     "logo": "/logos/73f6ce5845ff920a177a7ae90af98a70.webp"
+    },
+    "trailer": "jP2g8G16mJA",
+    "rating": "7.6",
+    "genres": [
+     156
+    ],
+    "quality": [
+     61856
+    ],
+    "years": [
+     78389
+    ],
+    "type": "movies",
+    "release_date": "2026-07-23",
+    "last_update": "2026-09-23 01:41:47",
+    "vote_count": "54",
+    "runtime": "98.0",
+    "original_title": "Hasta el Fin del Mundo",
+    "gallery": "",
+    "tagline": ""
+   }
+  ],
+  "pagination": {
+   "current_page": 1,
+   "last_page": 192,
+   "per_page": 24,
+   "total": 4608,
+   "next_page_url": "https://allcalidad.re/api/rest/listing?page=2",
+   "prev_page_url": null
+  }
+ }
+}

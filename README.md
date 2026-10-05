@@ -1,8 +1,9 @@
 # Maratón
 
 Series, anime y películas en español —latino, castellano o subtitulado— para ver de corrido. Todo pasa en tu
-propio aparato: el plugin lee los catálogos de los sitios, abre la página del episodio en un navegador oculto y le
-pasa al reproductor el video que esa página encuentra. No hay servidores intermedios.
+propio aparato: el plugin lee los catálogos de los sitios y la página del reproductor de cada episodio; si esa página
+no trae la dirección del video, la abre en un navegador oculto y le pasa al reproductor el video que encuentra. No hay
+servidores intermedios.
 
 <img src="icon.png" width="96" alt="Maratón">
 
@@ -43,9 +44,9 @@ puede leer páginas).
 - **"Comparte registros de errores con Kino para corregir fallas"**: cuando algo falla (un sitio caído, una
   verificación, un servidor que no entrega el video), sale un aviso con códigos —qué sitio, qué servidor, cuánto
   tardó—, nunca direcciones, títulos ni lo que escribiste.
-- **Se conecta con**: `serieskao.top`, `tmdb.allcalidad.re`, `sololatino.net` (los catálogos) y `embed69.org`,
-  `morencius.com`, `hglink.to`, `voe.sx`, `vimeos.net`, `goodstream.one` (los reproductores donde arranca la búsqueda
-  del video).
+- **Se conecta con**: `serieskao.top`, `allcalidad.re`, `sololatino.net` (los catálogos) y `embed69.org`,
+  `morencius.com`, `hglink.to`, `hlswish.com`, `voe.sx`, `vimeos.net`, `goodstream.one`, `videoapp.zip`,
+  `filemoon.sx` (los reproductores donde arranca la búsqueda del video).
 
 ## Su propia página y sus géneros
 
@@ -70,7 +71,9 @@ En **Ajustes ▸ Maratón** (o Plugins ▸ Maratón ▸ Configurar):
 
 ## Bueno saber
 
-- Un sitio caído o que pide una verificación no rompe los demás: la búsqueda muestra lo que sí respondió.
+- Un sitio caído o que pide una verificación no rompe los demás: la búsqueda muestra lo que sí respondió, e Inicio
+  muestra las últimas filas buenas de un sitio que tarda. Un sitio que falla varias veces seguidas descansa unos minutos.
+- En aparatos cuyo navegador oculto no funciona, se usan solo los servidores cuya página trae el video.
 - La dirección de cada video dura unas horas (medido: 12 h). Si se vence mientras pausas, Kino la vuelve a buscar.
 
 ## Cómo está hecho (para quien escribe plugins)
@@ -83,12 +86,15 @@ Maratón usa casi todo lo que ofrece el SDK de plugins de Kino; `plugin.js` est�
   (`section`, `toggle`, `select`, `status`, `action`).
 - **Errores** con código y `userMessage` en español para cada falla de red, sitio caído, verificación de Cloudflare o
   servidor que ya no existe; nunca un "no hay resultados" cuando lo que pasó es que nadie respondió.
-- **Tiempos**: cada petición 10 s; `resolve` lleva su propio reloj por debajo de los 75 s que Kino le da y nunca abre
-  una página sin tiempo; cada página oculta 15 s si quedan otras, 25 s la última.
+- **Tiempos** (`LIMITS` en `plugin.js`): Inicio y la página contestan a los 12 s con lo que esté listo (filas guardadas
+  para el sitio que tarda), la búsqueda a los 12,5 s, los dibujos de Categorías en 3 s; `resolve` lista servidores en
+  22 s como mucho, lee la página de cada reproductor en 6 s y da a cada página oculta una ventana medida por servidor
+  (Streamwish 22 s, Vidhide 16 s, Voe 12 s…), siempre por debajo de los 75 s que Kino le da.
 - **Búsqueda** con `kino.rank` (cabeza del título, orden por parecido, relevancia) y los títulos alternos de TMDB que
   Kino manda (`originalTitle`, `altTitles`).
 - **`kino.storage`** con vencimiento (`ttlMs`) para los enlaces, el último servidor que funcionó y el IMDb de cada serie.
-- **`expiresInSeconds`** sacado de la URL del CDN, y `resolve(ref, { retry })` que tira la copia guardada.
+- **`expiresInSeconds`** sacado de la URL del CDN, y `resolve(ref, { retry })` que tira la copia guardada y manda al
+  final el servidor rechazado. Un video sin vencimiento conocido o atado a cookies se recuerda 10 minutos como mucho.
 - **Registros** (`kino.log`) de cada paso con su tiempo, solo host y ruta: nunca una query con tokens.
 - **Pruebas** (`npm test`) contra páginas y respuestas guardadas de los sitios reales (`test/fixtures`), con un `kino`
   falso; cada ajuste tiene la suya.

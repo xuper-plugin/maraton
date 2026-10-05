@@ -1,0 +1,36 @@
+{
+ "error": false,
+ "message": "",
+ "data": {
+  "_id": 27621,
+  "title": "Matrix (1999)",
+  "overview": "Un hacker informático aprende de misteriosos rebeldes la verdadera naturaleza de su realidad y su papel en la guerra contra sus controladores.",
+  "slug": "matrix-1999",
+  "images": {
+   "poster": "/thumbs/d86ea612dec96096c5e0fcc8dd42ab6d_hd.webp",
+   "backdrop": "/backdrops/d86ea612dec96096c5e0fcc8dd42ab6d.webp",
+   "logo": "/logos/d86ea612dec96096c5e0fcc8dd42ab6d.webp"
+  },
+  "trailer": "d0XTFAMmhrE",
+  "rating": "8.2",
+  "genres": [
+   26,
+   27
+  ],
+  "quality": [
+   61855,
+   61856
+  ],
+  "years": [
+   844
+  ],
+  "type": "movies",
+  "release_date": "1999-03-31",
+  "last_update": "2025-04-28 19:39:07",
+  "vote_count": "26312",
+  "runtime": "131.0",
+  "original_title": "The Matrix",
+  "gallery": "",
+  "tagline": "Bienvenido al mundo real."
+ }
+}

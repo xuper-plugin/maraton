@@ -1,0 +1,138 @@
+{
+ "error": false,
+ "message": "",
+ "data": {
+  "posts": [
+   {
+    "_id": 70410,
+    "title": "Un día con el Diablo (1945)",
+    "overview": "Cantinflas, en una noche de borrachera, se convierte en soldado del ejército por error. Al poco tiempo, durante una misión de combate, resulta herido y ya estando al borde de la muerte se encuentra con un demonio que intenta convertirlo en un ser malvado.",
+    "slug": "un-dia-con-el-diablo-1945",
+    "images": {
+     "poster": "/thumbs/251081321995fc4185d55a5d3e788e39_hd.webp",
+     "backdrop": "/backdrops/251081321995fc4185d55a5d3e788e39.webp",
+     "logo": "/logos/251081321995fc4185d55a5d3e788e39.webp"
+    },
+    "trailer": "",
+    "rating": "7.7",
+    "genres": [
+     216
+    ],
+    "quality": [
+     61856
+    ],
+    "years": [
+     91856
+    ],
+    "type": "movies",
+    "release_date": "1945-11-30",
+    "last_update": "2026-10-04 20:57:39",
+    "vote_count": "75",
+    "runtime": "100.0",
+    "original_title": "Un día con el Diablo",
+    "gallery": "",
+    "tagline": ""
+   },
+   {
+    "_id": 70274,
+    "title": "Las Mejores (2026)",
+    "overview": "Comedia estadounidense sobre el despiadado circuito universitario de baile fusión de Bollywood.",
+    "slug": "las-mejores-2026",
+    "images": {
+     "poster": "/thumbs/e76d05cd6f0b6afe974518f6784d0c3a_hd.webp",
+     "backdrop": "/backdrops/e76d05cd6f0b6afe974518f6784d0c3a.webp",
+     "logo": "/logos/e76d05cd6f0b6afe974518f6784d0c3a.webp"
+    },
+    "trailer": "PuNATO-6a9U",
+    "rating": "4.9",
+    "genres": [
+     216
+    ],
+    "quality": [
+     61856
+    ],
+    "years": [
+     78389
+    ],
+    "type": "movies",
+    "release_date": "2026-09-18",
+    "last_update": "2026-09-23 01:41:52",
+    "vote_count": "42",
+    "runtime": "112.0",
+    "original_title": "Best of the Best",
+    "gallery": "",
+    "tagline": ""
+   },
+   {
+    "_id": 70273,
+    "title": "Hasta el Fin del Mundo (2026)",
+    "overview": "La vida de Manuel da un vuelco cuando Esmeralda, su amor perdido de hace quince años, lo llama inesperadamente. A pesar de estar a punto de casarse con otra persona, él se reencontrará con Esmeralda y ambos se darán cuenta de que su amor trasciende el tiempo.",
+    "slug": "hasta-el-fin-del-mundo-2026",
+    "images": {
+     "poster": "/thumbs/73f6ce5845ff920a177a7ae90af98a70_hd.webp",
+     "backdrop": "/backdrops/73f6ce5845ff920a177a7ae90af98a70.webp",
+     "logo": "/logos/73f6ce5845ff920a177a7ae90af98a70.webp"
+    },
+    "trailer": "jP2g8G16mJA",
+    "rating": "7.6",
+    "genres": [
+     156
+    ],
+    "quality": [
+     61856
+    ],
+    "years": [
+     78389
+    ],
+    "type": "movies",
+    "release_date": "2026-07-23",
+    "last_update": "2026-09-23 01:41:47",
+    "vote_count": "54",
+    "runtime": "98.0",
+    "original_title": "Hasta el Fin del Mundo",
+    "gallery": "",
+    "tagline": ""
+   },
+   {
+    "_id": 70272,
+    "title": "La Pandilla Newton (1998)",
+    "overview": "Aún no hemos añadido una sinopsis para este título. <br />¡Gracias por tu paciencia! Estamos trabajando para agregarla pronto.",
+    "slug": "la-pandilla-newton-1998",
+    "images": {
+     "poster": "/thumbs/2e61866ea98aba76b0b07e7e7728c646_hd.webp",
+     "backdrop": "/backdrops/2e61866ea98aba76b0b07e7e7728c646.webp",
+     "logo": "/logos/2e61866ea98aba76b0b07e7e7728c646.webp"
+    },
+    "trailer": "MSiIVMi1A08",
+    "rating": "6.1",
+    "genres": [
+     26,
+     135,
+     156
+    ],
+    "quality": [
+     61856
+    ],
+    "years": [
+     633
+    ],
+    "type": "movies",
+    "release_date": "1998-03-26",
+    "last_update": "2026-09-22 23:18:22",
+    "vote_count": "207",
+    "runtime": "122.0",
+    "original_title": "The Newton Boys",
+    "gallery": "",
+    "tagline": ""
+   }
+  ],
+  "pagination": {
+   "current_page": 1,
+   "last_page": 384,
+   "per_page": 24,
+   "total": 9199,
+   "next_page_url": "https://allcalidad.re/api/rest/listing?page=2",
+   "prev_page_url": null
+  }
+ }
+}

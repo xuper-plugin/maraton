@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="origin">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<title>Matrix</title>
+<style>
+:root{--primary:#7c3aed;--bg:#070014}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg)}
+#app{position:relative;width:100%;height:100%}
+iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+.logo{position:absolute;top:12px;left:12px;height:28px;z-index:5;pointer-events:none;opacity:.9}
+.veil{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg);color:#fff;font-family:system-ui;z-index:10}
+.veil.hidden{display:none}
+.spinner{width:42px;height:42px;border:3px solid #ffffff22;border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.notice{position:absolute;inset:0;display:none;flex-direction:column;gap:.8rem;align-items:center;justify-content:center;background:var(--bg);color:#fff;font-family:system-ui;text-align:center;padding:1rem;z-index:20}
+.notice.show{display:flex}
+.notice button{padding:.6rem 1.2rem;border:0;border-radius:6px;background:var(--primary);color:#fff;cursor:pointer;font-size:.95rem}
+</style>
+</head>
+<body>
+<div id="app">
+  
+  <div class="veil" id="veil"><div class="spinner"></div></div>
+  <iframe id="frame" src="https://vimeos.net/embed-n1heuxm4500w.html?cf=CF_TOKEN" allow="autoplay; fullscreen; encrypted-media" allowfullscreen referrerpolicy="origin"></iframe>
+  <div class="notice" id="expNotice">
+    <div>La sesión del reproductor expiró.</div>
+    <button onclick="location.reload()">Recargar (F5)</button>
+  </div>
+  <div class="notice" id="nfNotice">
+    <div>Contenido no disponible.</div>
+  </div>
+</div>
+<script>
+(function(){
+  var ADS = false;
+  var params = new URLSearchParams(location.search);
+  var cfToken = "CF_TOKEN";
+  var SOURCE_ORIGIN_HINT = "https://allcalidad.re";
+  var meta = {
+    content_type: "movie",
+    tmdb: 603,
+    season: null,
+    episode: null,
+    title: "Matrix",
+    cf_mode: Boolean(cfToken)
+  };
+  var cfPayload = parseCfPayload(cfToken);
+  var needsConsumption = cfPayload.m === 'vip' && cfPayload.ads === 0 && cfPayload.bs !== 'site_native_player';
+  var CONSUME_AFTER = Math.max(1, Number(cfPayload.ct || 30) || 30);
+  var claimKey = String(params.get('pc') || params.get('claim') || params.get('play_claim') || cfPayload.pc || '').trim();
+  var externalControlsActive = false;
+  var POST_MESSAGE_ENABLED = externalControlsActive && cfPayload.public_post_message === true;
+  var PARENT_ORIGIN = selectParentOrigin(cfPayload);
+  var SOURCE_ORIGIN = selectSourceOrigin(cfPayload);
+  var childOrigin = '';
+  var childBridgeReady = false;
+  var frame = document.getElementById('frame');
+  var veil = document.getElementById('veil');
+  var watch = 0, playing = false, consumeAcknowledged = false, consumePending = false, consumeAttempts = 0, nextConsumeAttemptAt = 0, lastRecord = Object.create(null);
+  var session = (function(){
+    var signed = String(cfPayload.sid || '').trim();
+    if(/^[A-Za-z0-9_.:-]{8,128}$/.test(signed)) return signed;
+    try {
+      if(window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
+      if(window.crypto && typeof window.crypto.getRandomValues === 'function'){
+        var values = new Uint32Array(4);
+        window.crypto.getRandomValues(values);
+        return Array.prototype.map.call(values, function(value){ return value.toString(36); }).join('-');
+      }
+    } catch(e) {}
+    return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 14);
+  })();
+
+  function b64url(value){
+    try {
+      value = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
+      while(value.length % 4) value += '=';
+      var bin = atob(value);
+      var out = '';
+      for(var i=0;i<bin.length;i++) out += '%' + ('00' + bin.charCodeAt(i).toString(16)).slice(-2);
+      return decodeURIComponent(out);
+    } catch(e) { return ''; }
+  }
+  function parseCfPayload(token){
+    var payload = String(token || '').split('.')[1] || '';
+    if(!payload) return {};
+    try { return JSON.parse(b64url(payload)); } catch(e) { return {}; }
+  }
+  function normOrigin(value){
+    value = String(value || '').trim();
+    if(!value) return '';
+    try { return new URL(value, location.href).origin.toLowerCase(); } catch(e) { return ''; }
+  }
+  function hostOf(origin){ try { return new URL(origin).hostname.toLowerCase(); } catch(e) { return ''; } }
+  function embeddingOrigin(){
+    var ref = normOrigin(document.referrer || '');
+    if(ref) return ref;
+    try {
+      var ancestors = window.location.ancestorOrigins;
+      if(ancestors && ancestors.length) return normOrigin(ancestors[0] || '');
+    } catch(e) {}
+    return '';
+  }
+  function originAllowedBy(rule, origin){
+    if(!rule || !origin) return false;
+    rule = String(rule).trim().toLowerCase().replace(/\/+$/, '');
+    if(!rule || rule === '*') return false;
+    var exact = normOrigin(rule);
+    if(exact && exact === origin) return true;
+    var host = hostOf(origin);
+    var ruleHost = rule.replace(/^https?:\/\//, '').split('/')[0].split(':')[0];
+    if(!host || !ruleHost) return false;
+    if(ruleHost.indexOf('*.') === 0){
+      var suffix = ruleHost.slice(1);
+      return host.endsWith(suffix) && host !== suffix.slice(1);
+    }
+    return host === ruleHost;
+  }
+  function selectParentOrigin(payload){
+    var ref = embeddingOrigin();
+    var pm = Array.isArray(payload.pm) ? payload.pm : [];
+    var ao = Array.isArray(payload.ao) ? payload.ao : [];
+    if(ref){
+      for(var i=0;i<pm.length;i++){ if(normOrigin(pm[i]) === ref) return ref; }
+      for(var j=0;j<ao.length;j++){ if(originAllowedBy(ao[j], ref)) return ref; }
+    }
+    for(var k=0;k<pm.length;k++){ var origin = normOrigin(pm[k]); if(origin) return origin; }
+    return '';
+  }
+  function selectSourceOrigin(payload){
+    var ref = embeddingOrigin();
+    if(ref) return ref;
+    var hint = normOrigin(SOURCE_ORIGIN_HINT);
+    if(hint) return hint;
+    return normOrigin(payload.origin || payload.source_origin || '');
+  }
+  function addEndpoint(list, value){
+    if(!value) return;
+    try {
+      var u = new URL(String(value), location.href);
+      var path = u.pathname.replace(/\/+$/, '');
+      if(u.hostname === 'api.videoapi.la') u = new URL('https://videoapi.la/_/r');
+      else if(path === '/api/v1/player-events' || path === '/api/v1/p' || path === '/api/v1/i' || path === '/player-events' || path === '/p' || path === '/i') u = new URL('/_/r', u.origin);
+      var href = u.origin === location.origin ? (u.pathname + u.search) : u.href;
+      if(list.indexOf(href) < 0) list.push(href);
+    } catch(e) {}
+  }
+  function eventEndpoints(){
+    var list = [];
+    if(cfPayload.er === false || cfPayload.er === 0) return list;
+    addEndpoint(list, '/_/r');
+    addEndpoint(list, cfPayload.ee || '');
+    return list;
+  }
+  function contentRef(){
+    var parts = [meta.content_type || 'video'];
+    if(meta.tmdb) parts.push('tmdb:' + meta.tmdb);
+    if(meta.season) parts.push('s:' + meta.season);
+    if(meta.episode) parts.push('e:' + meta.episode);
+    return parts.join(':');
+  }
+  function eventPosition(data){
+    data = data || {};
+    var n = data.player_progress || data.position_seconds || data.currentTime || data.time || 0;
+    n = Number(n);
+    return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
+  }
+  function shouldRecord(type){
+    if(type === 'message' || type === 'storage_set') return false;
+    var now = Date.now();
+    var gap = type === 'time' ? 30000 : (type === 'seek' || type === 'seeked' ? 3000 : 800);
+    if(lastRecord[type] && now - lastRecord[type] < gap) return false;
+    lastRecord[type] = now;
+    return true;
+  }
+  function wireEvent(type){ return type === 'vip_consume_threshold' ? 'vc' : type; }
+  function criticalPixel(endpoint, type, data){
+    try {
+      var q = new URLSearchParams();
+      q.set('c', cfToken);
+      q.set('e', wireEvent(type));
+      q.set('p', String(eventPosition(data)));
+      q.set('w', String(Math.max(0, Math.round(data.watch_seconds || data.watch || watch || 0))));
+      q.set('s', session);
+      q.set('o', SOURCE_ORIGIN || '');
+      q.set('path', location.pathname);
+      q.set('r', contentRef());
+      if(claimKey) q.set('k', claimKey);
+      var img = new Image();
+      img.referrerPolicy = 'origin';
+      img.src = endpoint + (endpoint.indexOf('?') >= 0 ? '&' : '?') + q.toString();
+    } catch(e) {}
+  }
+  function record(type, data){
+    var critical = type === 'vip_consume_threshold';
+    if(critical && (!needsConsumption || consumeAcknowledged || consumePending)) return;
+    if(!cfToken || !shouldRecord(type)) return;
+    var endpoints = eventEndpoints();
+    if(!endpoints.length) return;
+    data = Object.assign({}, data || {}, meta, { watch: watch });
+    var body = JSON.stringify({
+      c: cfToken,
+      e: wireEvent(type),
+      p: eventPosition(data),
+      w: Math.max(0, Math.round(data.watch_seconds || data.watch || watch || 0)),
+      s: session,
+      o: SOURCE_ORIGIN || '',
+      source_path: location.pathname,
+      r: contentRef(),
+      k: claimKey,
+      d: data
+    });
+    var controller = critical && typeof AbortController === 'function' ? new AbortController() : null;
+    var timeout = controller ? setTimeout(function(){ controller.abort(); }, 10000) : null;
+    if(critical) consumePending = true;
+    for(var i=0;i<endpoints.length;i++){
+      try {
+        var request = fetch(endpoints[i], {method:'POST', body:body, keepalive:true, credentials:'omit', signal:controller ? controller.signal : undefined});
+        if(critical){
+          request.then(function(response){
+            if(!response.ok) return null;
+            return response.json().catch(function(){ return null; });
+          }).then(function(result){
+            var claim = result && result.claim;
+            var status = claim && String(claim.status || '');
+            if(claim && (claim.consumed || status === 'already_consumed' || status === 'insufficient_plays' || status === 'not_chargeable' || status === 'invalid_claim' || status === 'expired' || status === 'rejected')) consumeAcknowledged = true;
+          }).catch(function(){
+            criticalPixel(endpoints[0], type, data);
+          }).finally(function(){
+            if(timeout !== null) clearTimeout(timeout);
+            consumePending = false;
+          });
+        } else request.catch(function(){});
+        return;
+      } catch(e) {}
+    }
+    if(timeout !== null) clearTimeout(timeout);
+    if(critical){
+      consumePending = false;
+      criticalPixel(endpoints[0], type, data);
+    }
+  }
+  function postParentMessage(message){
+    if(!POST_MESSAGE_ENABLED || !PARENT_ORIGIN || !window.parent || window.parent === window) return false;
+    try {
+      parent.postMessage(Object.assign({source:'vidapi-player'}, message || {}), PARENT_ORIGIN);
+      return true;
+    } catch(e){ return false; }
+  }
+  function postParentNegotiation(message){
+    if(!PARENT_ORIGIN || !window.parent || window.parent === window) return false;
+    try {
+      parent.postMessage(Object.assign({source:'vidapi-player'}, message || {}), PARENT_ORIGIN);
+      return true;
+    } catch(e){ return false; }
+  }
+  function toParent(type, data){
+    data = Object.assign({}, data || {}, meta, { event_type: type, watch: watch });
+    record(type, data);
+    postParentMessage({type:'VIDAPI_PLAYER_EVENT', event:type, data:data});
+  }
+  function forwardCommand(d){
+    if(!frame || !frame.contentWindow || !childOrigin) return false;
+    try { frame.contentWindow.postMessage(d, childOrigin); return true; } catch(e) { return false; }
+  }
+  function tick(){
+    if(!playing) return;
+    watch += 1;
+    if(watch % 5 === 0) toParent('time', { player_progress: watch, watch_seconds: watch });
+    var now = Date.now();
+    if(needsConsumption && watch >= CONSUME_AFTER && !consumeAcknowledged && !consumePending && consumeAttempts < 6 && now >= nextConsumeAttemptAt){
+      consumeAttempts += 1;
+      nextConsumeAttemptAt = now + 5000;
+      toParent('vip_consume_threshold', { watch_seconds: watch, consume_after: CONSUME_AFTER, attempt: consumeAttempts });
+    }
+  }
+  setInterval(tick, 1000);
+
+
+  window.addEventListener('message', function(ev){
+    var d = ev.data;
+    if(!d || typeof d !== 'object') return;
+
+    if(ev.source === frame.contentWindow){
+      childOrigin = ev.origin || childOrigin;
+      if(d.type === 'VIDAPI_PLAYER_COMMAND_RESULT'){
+        postParentMessage({
+          type:'VIDAPI_PLAYER_COMMAND_RESULT',
+          request_id:d.request_id || '',
+          command:d.command || '',
+          ok:d.ok === true,
+          data:d.data || null,
+          error:d.error || ''
+        });
+        return;
+      }
+      var eventName = d.event || d.event_type || d.type;
+      var data = d.data && typeof d.data === 'object' ? d.data : d;
+      if(!eventName) return;
+      if(eventName === 'PLAYER_EVENT' || eventName === 'VIDAPI_PLAYER_EVENT'){ eventName = data.event || data.event_type || 'message'; }
+      if(eventName === 'bridge_ready'){ childBridgeReady = true; veil.classList.add('hidden'); toParent('bridge_ready', Object.assign({ external_controls: externalControlsActive }, data || {})); }
+      else if(eventName === 'ready'){ childBridgeReady = true; veil.classList.add('hidden'); toParent('ready', data); }
+      else if(eventName === 'play'){ playing = true; veil.classList.add('hidden'); toParent('play', data); }
+      else if(eventName === 'pause'){ playing = false; toParent('pause', data); }
+      else if(eventName === 'stop' || eventName === 'ended' || eventName === 'complete'){ playing = false; toParent('ended', data); }
+      else if(eventName === 'time'){ toParent('time', data); }
+      else if(eventName === 'seek' || eventName === 'seeked'){ toParent('seek', data); }
+      else if(eventName === 'error' || eventName === '404' || eventName === 'notfound'){
+        if(eventName === '404' || eventName === 'notfound') document.getElementById('nfNotice').classList.add('show');
+        veil.classList.add('hidden');
+        toParent(eventName === 'error' ? 'error' : '404', data);
+      } else {
+        toParent(eventName, data);
+      }
+      return;
+    }
+
+    if(d.type === 'VIDAPI_PLAYER_COMMAND' || d.type === 'PLAYER_COMMAND'){
+      if(!PARENT_ORIGIN || ev.source !== window.parent || ev.origin !== PARENT_ORIGIN) return;
+      var command = d.command || d.action || '';
+      if(!externalControlsActive){
+        if(command === 'ping' || command === 'getStatus' || command === 'getState' || command === 'getCapabilities'){
+          postParentNegotiation({
+            type:'VIDAPI_PLAYER_COMMAND_RESULT',
+            request_id:d.request_id || '',
+            command:command,
+            ok:true,
+            data:{
+              playing:playing,
+              watch_seconds:watch,
+              controls_hidden:false,
+              capabilities:{ protocol:'vidapi-player-v2', external_controls:false }
+            },
+            error:''
+          });
+        }
+        return;
+      }
+      if(!POST_MESSAGE_ENABLED) return;
+      if(externalControlsActive){
+        if(!childBridgeReady || !forwardCommand(d)){
+          postParentMessage({
+            type:'VIDAPI_PLAYER_COMMAND_RESULT',
+            request_id:d.request_id || '',
+            command:command,
+            ok:false,
+            data:null,
+            error:'bridge_not_ready'
+          });
+        }
+        return;
+      }
+      if(command === 'ping' || command === 'getStatus' || command === 'getState'){
+        postParentMessage({ type:'VIDAPI_PLAYER_COMMAND_RESULT', request_id:d.request_id || '', command:command, ok:true, data:{ playing:playing, watch_seconds:watch }, error:'' });
+        return;
+      }
+    }
+  });
+
+  frame.addEventListener('load', function(){
+    setTimeout(function(){
+      veil.classList.add('hidden');
+      if(!externalControlsActive){
+        postParentNegotiation({
+          type:'VIDAPI_PLAYER_EVENT',
+          event:'bridge_ready',
+          data:{
+            child_origin:childOrigin || '',
+            parent_origin:PARENT_ORIGIN || '',
+            controls_hidden:false,
+            capabilities:{ protocol:'vidapi-player-v2', external_controls:false }
+          }
+        });
+      }
+    }, 400);
+  });
+})();
+</script>
+
+
+</body>
+</html>
