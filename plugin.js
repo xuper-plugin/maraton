@@ -6,6 +6,13 @@
 // Refs:  "<site>|<path>"  e.g. "sk|/serie/dark" (a series), "sk|/serie/dark/temporada/1/capitulo/1" (an episode).
 // Rows:  "row|<site>|<kind>" with the catalog page number as the cursor.
 
+
+// Kino waits for every request a call left running before it delivers the call's answer (quickjs-kt joins the pending async work), so a Home that
+// gave up on a slow row at its own budget was still held until that row's request ended, or retried: measured on users' devices Home ran 21-34 s
+// with rows logged as "skipped: its source did not answer in time", and Kino threw the whole answer away at 20 s. Asking Kino to drop what a call
+// leaves running (the prelude reads this flag after every call; Kino 0.9.55 and later, an older one ignores it) lets the answer leave at the budget.
+globalThis.__kinoDropPendingFetches = true;
+
 export const UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36";
 
 const SITES = {
