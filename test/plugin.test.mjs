@@ -26,6 +26,11 @@ globalThis.kino = {
       const ok = !missingImages.has(url);
       return { ok, status: ok ? 200 : 404, headers: { "content-type": ok ? "image/webp" : "text/html; charset=UTF-8" }, text: () => "" };
     }
+    // A playlist the resolver handed back answers like one (the plugin peeks at it), unless a test lists it as down.
+    if (pages[url] === undefined && /\.m3u8(\?|$)/.test(url)) {
+      if (deadPlaylists.has(url)) return { ok: false, status: 504, text: () => "", json: () => ({}) };
+      return { ok: true, status: 200, text: () => "#EXTM3U\n", json: () => ({}) };
+    }
     const body = pages[url];
     return { ok: body !== undefined, status: body === undefined ? 404 : 200, text: () => body || "", json: () => JSON.parse(body) };
   },
@@ -50,13 +55,21 @@ globalThis.kino = {
     keys: () => [...store.keys()],
   },
   config: { get: (k) => config[k] },
+  // The shared kino-resolver's door: [door] answers `resolve` (default: nothing inline, so the hidden browser is next).
+  plugins: { call: async (alias, method, args) => { doorCalls.push({ method, ...args }); if (method === "resolve") return door(args); throw kinoError("not_declared", method); } },
 };
+const NEEDS_BROWSER = { streams: [], error: "needs_browser" };
+const deadPlaylists = new Set();
+let door = () => NEEDS_BROWSER;
+const doorCalls = [];
+/** A door that opens the listed embeds (url -> streams) and answers needs_browser for the rest. */
+const doorFor = (map) => ({ url }) => (map[url] ? { streams: map[url] } : NEEDS_BROWSER);
 const reports = [];
 const store = new Map();
 const ttls = new Map();
 const config = {};
 // SoloLatino is off by default in these tests (its own tests switch it on): the older tests are about two sites.
-beforeEach(() => { missingImages.clear(); plugin.forgetPages(); reports.length = 0; store.clear(); ttls.clear(); for (const k of Object.keys(config)) delete config[k]; config.useSololatino = false; });
+beforeEach(() => { door = () => NEEDS_BROWSER; doorCalls.length = 0; deadPlaylists.clear(); missingImages.clear(); plugin.forgetPages(); reports.length = 0; store.clear(); ttls.clear(); for (const k of Object.keys(config)) delete config[k]; config.useSololatino = false; });
 const plugin = await import("../plugin.js");
 
 test("search reads serieskao's cards and survives the other site failing", async () => {
@@ -139,7 +152,8 @@ test("servers: latino first; within it the servers whose page carries the playli
     "https://hglink.to/e/l", "https://morencius.com/embed/a", "https://mystery.example/e/f", "https://voe.sx/e/v", "https://hglink.to/e/s",
   ]);
   assert.ok(plugin.canExtract({ url: "https://hglink.to/e/l" }) && plugin.canExtract({ url: "https://vimeos.net/embed-x.html" }));
-  assert.ok(!plugin.canExtract({ url: "https://voe.sx/e/v" }) && !plugin.canExtract({ url: "https://filemoon.sx/e/x" }));
+  assert.ok(plugin.canExtract({ url: "https://filemoon.sx/e/x" }), "the resolver reads filemoon inline");
+  assert.ok(!plugin.canExtract({ url: "https://voe.sx/e/v" }), "voe asks for a human check: it needs the browser");
 });
 
 test("a page gets 15 s while others remain and the full 25 s when it is the last", () => {
@@ -346,9 +360,9 @@ test("allcalidad refs: posts, episodes with their TMDB ids, and the TMDB refs sa
     [["lat", "vimeos"], ["lat", "goodstream"], ["lat", "hlswish"], ["lat", "voe"], ["lat", "filemoon"], ["lat", "videoapp"]]);
 });
 
-test("allcalidad resolve reads vimeos' own page: no hidden browser, the player gets the page's User-Agent and Referer", async () => {
+test("allcalidad resolve opens vimeos through the resolver: no hidden browser, the player gets its User-Agent, Referer and Origin", async () => {
   pages[`${ACAPI}/player?post_id=41663&_any=1`] = fixture("ac2-player-41663.json");
-  pages["https://vimeos.net/embed-aeyyn4wosizi.html"] = fixture("emb-vimeos.html");
+  door = doorFor({ "https://vimeos.net/embed-aeyyn4wosizi.html": [{ url: "https://s10.vimeos.net/hls2/03/00007/x_,n,h,.urlset/master.m3u8?t=k", kind: "hls", referer: "https://vimeos.net/", headers: [{ name: "Origin", value: "https://vimeos.net" }] }] });
   captured.length = 0;
   try {
     const st = await plugin.resolve("ac|ep/41663/70523/1/1");
@@ -361,7 +375,6 @@ test("allcalidad resolve reads vimeos' own page: no hidden browser, the player g
     assert.ok(ttls.get("stream:ac|ep/41663/70523/1/1") <= 10 * 60 * 1000); // no expiry in the URL: kept briefly
   } finally {
     delete pages[`${ACAPI}/player?post_id=41663&_any=1`];
-    delete pages["https://vimeos.net/embed-aeyyn4wosizi.html"];
   }
 });
 
@@ -747,16 +760,16 @@ test("allcalidad: vimeos before goodstream by default (Probar primero still wins
   assert.deepEqual(plugin.rankServers(list, "lat", "", "goodstream").map((f) => f.server), ["goodstream", "vimeos"]);
   // A movie saved before 0.6.2 (TMDB id 603): videoapp frames a vimeos page, whose playlist is read.
   pages["https://videoapp.zip/e/movie/603"] = fixture("videoapp-movie-603.html");
-  pages["https://vimeos.net/embed-n1heuxm4500w.html"] = fixture("emb-vimeos.html");
+  door = doorFor({ "https://vimeos.net/embed-n1heuxm4500w.html": [{ url: "https://s10.vimeos.net/hls2/03/1/y/master.m3u8", kind: "hls", referer: "https://vimeos.net/" }] });
   captured.length = 0;
   try {
     const st = await plugin.resolve("ac|movie/603");
     assert.deepEqual(captured, []);
     assert.match(st.url, /vimeos\.net\/hls2\//);
     assert.equal(st.headers.Referer, "https://vimeos.net/");
+    assert.equal(doorCalls.find((c) => c.method === "resolve").url, "https://vimeos.net/embed-n1heuxm4500w.html", "videoapp's frame is what the resolver is asked");
   } finally {
     delete pages["https://videoapp.zip/e/movie/603"];
-    delete pages["https://vimeos.net/embed-n1heuxm4500w.html"];
   }
 });
 
@@ -953,48 +966,40 @@ const withVidurl = async (fn) => {
 const shrink = (o) => { const saved = { ...plugin.LIMITS }; Object.assign(plugin.LIMITS, o); return () => Object.assign(plugin.LIMITS, saved); };
 const never = () => new Promise(() => {});
 
-test("embed pages: vidhide, streamwish (hlswish) and vimeos unpack their playlists; goodstream's is in the clear; a deleted file says so", () => {
-  const vh = plugin.playlistsOf(fixture("emb-vidhide.html"), "https://morencius.com/embed/vr0ps5s4v6bw");
-  assert.equal(vh.playlists[0], "https://morencius.com/stream/TOKEN/abc/1791203159/1/master.m3u8"); // hls4, relative to the page
-  assert.equal(vh.playlists.length, 2); // hls4, hls2 (hls3 master.txt left out)
-  assert.deepEqual(vh.subtitles.map((s) => s.label), ["Español"]);
-  const sw = plugin.playlistsOf(fixture("emb-hlswish.html"), "https://hlswish.com/e/7vs4vkrnf7ma");
-  assert.match(sw.playlists[0], /^https:\/\/hlswish\.com\/stream\//);
-  assert.equal(plugin.playlistsOf(fixture("emb-vimeos.html"), "https://vimeos.net/e").playlists.length, 1);
-  assert.match(plugin.playlistsOf(fixture("emb-goodstream.html"), "https://goodstream.one/e").playlists[0], /goodstream\.one\/hls2\/.*master\.m3u8/);
-  const gone = plugin.playlistsOf(fixture("emb-gone.html"), "https://hlswish.com/e/x");
-  assert.deepEqual([gone.playlists.length, gone.gone], [0, true]);
-  assert.equal(plugin.unpackAll("<html>no packer</html>"), "");
-  assert.deepEqual(plugin.extractedHeaders("https://vimeos.net/embed-a.html", "https://s10.vimeos.net/x.m3u8"), { "User-Agent": plugin.UA, Referer: "https://vimeos.net/", Origin: "https://vimeos.net" });
-  assert.deepEqual(plugin.extractedHeaders("https://morencius.com/embed/a", "https://morencius.com/stream/x.m3u8"), { "User-Agent": plugin.UA, Referer: "https://morencius.com/" });
+test("every server is asked of the resolver first (known or not); a deleted file never reaches the hidden browser", async () => {
+  door = ({ url }) => (/hglink/.test(url) ? { streams: [], error: "dead" } : NEEDS_BROWSER);
+  captured.length = 0;
+  captureAnswer = async (url) => ({ media: [{ url: "https://cdn.example/" + (/voe/.test(url) ? "voe" : "vh") + "/master.m3u8", headers: {} }], subtitles: [], finalUrl: "" });
+  const st = await withVidurl(() => plugin.resolve(DARK_EP));
+  const asked = doorCalls.filter((c) => c.method === "resolve").map((c) => c.url);
+  assert.ok(asked.includes("https://hglink.to/e/7vs4vkrnf7ma") && asked.includes("https://morencius.com/embed/vr0ps5s4v6bw"), "the resolver was asked before any hidden page");
+  assert.ok(!captured.includes("https://hglink.to/e/7vs4vkrnf7ma"), "the deleted streamwish file is not captured");
+  assert.ok(plugin.failedServers("sk").has("streamwish"));
+  assert.match(st.url, /cdn\.example/);
 });
 
-test("streamwish's hglink ids are read on hlswish: the page's playlist plays, the other two lists are concrete alternatives", async () => {
-  pages["https://hlswish.com/e/7vs4vkrnf7ma"] = fixture("emb-hlswish.html");
-  const saved = kino.fetch;
-  const referers = [];
-  kino.fetch = async (url, o = {}) => { if (url.startsWith("https://hlswish.com/")) referers.push(o.headers && o.headers.Referer); return saved(url, o); };
+test("streamwish opens through the resolver: its first list plays, the second is a concrete alternative, its subtitles come along", async () => {
+  door = ({ url, referer }) => (/hglink\.to\/e\/7vs4vkrnf7ma/.test(url)
+    ? { streams: [
+      { url: "https://vibuxer.com/stream/T/1/master.m3u8", kind: "hls", referer: "https://vibuxer.com/e/7vs4vkrnf7ma", headers: [{ name: "User-Agent", value: plugin.UA }] },
+      { url: "https://cdn2.example/hls2/7vs/master.m3u8", kind: "hls", referer: "https://vibuxer.com/e/7vs4vkrnf7ma", headers: [{ name: "User-Agent", value: plugin.UA }] },
+    ], subtitles: [{ url: "https://vibuxer.com/subs/es.vtt", lang: "es" }], seenReferer: referer }
+    : NEEDS_BROWSER);
   captured.length = 0;
-  try {
-    const st = await withVidurl(() => plugin.resolve(DARK_EP));
-    assert.deepEqual(captured, []);
-    assert.match(st.url, /^https:\/\/hlswish\.com\/stream\//);
-    assert.deepEqual(st.headers, { "User-Agent": plugin.UA, Referer: "https://hlswish.com/" });
-    assert.equal(st.label, "Latino · Streamwish");
-    assert.equal(st.expiresInSeconds > 0 || st.expiresInSeconds === undefined, true);
-    const concrete = st.alternatives.filter((a) => a.url);
-    assert.equal(concrete.length, 1);
-    assert.ok(concrete.every((a) => a.headers["User-Agent"] === plugin.UA && a.label === "Latino · Streamwish (otra lista)"));
-    assert.deepEqual(st.subtitles.map((s) => s.format), ["vtt"]);
-    assert.deepEqual(referers, ["https://embed69.org/"]); // read as embed69 frames it
-  } finally {
-    kino.fetch = saved;
-    delete pages["https://hlswish.com/e/7vs4vkrnf7ma"];
-  }
+  const st = await withVidurl(() => plugin.resolve(DARK_EP));
+  assert.deepEqual(captured, []);
+  assert.equal(st.url, "https://vibuxer.com/stream/T/1/master.m3u8");
+  assert.deepEqual(st.headers, { "User-Agent": plugin.UA, Referer: "https://vibuxer.com/e/7vs4vkrnf7ma" });
+  assert.equal(st.label, "Latino · Streamwish");
+  const concrete = st.alternatives.filter((x) => x.url);
+  assert.equal(concrete.length, 1);
+  assert.ok(concrete.every((x) => x.headers["User-Agent"] === plugin.UA && x.label === "Latino · Streamwish (otra lista)"));
+  assert.deepEqual(st.subtitles.map((x) => x.format), ["vtt"]);
+  assert.equal(doorCalls.find((x) => x.method === "resolve").referer, "https://embed69.org/", "asked as embed69 frames it");
 });
 
 test("a device without a usable browser: learned once, later plays go straight to page-read servers, never a capture", async () => {
-  pages["https://morencius.com/embed/vr0ps5s4v6bw"] = fixture("emb-vidhide.html");
+  door = doorFor({ "https://morencius.com/embed/vr0ps5s4v6bw": [{ url: "https://morencius.com/stream/TOKEN/abc/1/1/master.m3u8", kind: "hls", referer: "https://morencius.com/" }] });
   let calls = 0;
   captureAnswer = async () => { calls++; throw Object.assign(new Error("none"), { code: "browser_unavailable" }); };
   try {
@@ -1011,7 +1016,7 @@ test("a device without a usable browser: learned once, later plays go straight t
     assert.equal(calls, 1); // no capture tried again
     assert.match(again.url, /morencius\.com/);
   } finally {
-    delete pages["https://morencius.com/embed/vr0ps5s4v6bw"];
+    captureAnswer = async () => ({ media: [{ url: "https://cdn.example/master.m3u8", headers: { Referer: "https://x/" } }], subtitles: [], finalUrl: "" });
   }
 });
 
@@ -1222,21 +1227,21 @@ test("within: the fallback after the deadline, and a late rejection never escape
   await new Promise((r) => setTimeout(r, 50)); // the rejection lands with a handler attached: no unhandledRejection
 });
 
-test("an embed host that does not answer is skipped at once: no hidden page for it, the next server plays", async () => {
-  const saved = kino.fetch;
-  kino.fetch = async (url, o) => (url.startsWith("https://hlswish.com/") ? Promise.reject(Object.assign(new Error("timeout"), { code: "timeout" })) : saved(url, o));
-  pages["https://morencius.com/embed/vr0ps5s4v6bw"] = fixture("emb-vidhide.html");
+test("an embed the resolver reports dead (a deleted file or a host that no longer resolves) is skipped at once: no hidden page, the next server plays", async () => {
+  door = ({ url }) => (/hglink/.test(url) ? { streams: [], error: "dead" } : /morencius/.test(url) ? { streams: [{ url: "https://morencius.com/stream/T/master.m3u8", kind: "hls", referer: "https://morencius.com/" }] } : NEEDS_BROWSER);
   captured.length = 0;
-  try {
-    const st = await withVidurl(() => plugin.resolve(DARK_EP));
-    assert.deepEqual(captured, []); // streamwish's host is down: its capture would not load either
-    assert.equal(st.label, "Latino · Vidhide");
-    assert.ok(plugin.failedServers("sk").has("streamwish"));
-    assert.ok(reports.some((r) => r[0] === "maraton:extract" && r[1] === "host_down" && r[2] === "server=streamwish"));
-  } finally {
-    kino.fetch = saved;
-    delete pages["https://morencius.com/embed/vr0ps5s4v6bw"];
-  }
+  const st = await withVidurl(() => plugin.resolve(DARK_EP));
+  assert.deepEqual(captured, []);
+  assert.equal(st.label, "Latino · Vidhide");
+  assert.ok(plugin.failedServers("sk").has("streamwish"));
+});
+
+test("without the resolver installed every server still plays through the hidden browser (slower, never an error)", async () => {
+  door = () => { throw kinoError("provider_missing", "not installed"); };
+  captured.length = 0;
+  const st = await withVidurl(() => plugin.resolve(DARK_EP));
+  assert.ok(captured.length >= 1, "the hidden browser took over");
+  assert.match(st.url, /cdn\.example/);
 });
 
 test("within() stops its timer once the race is decided: no kino.sleep keeps the call open", async () => {
@@ -1506,4 +1511,45 @@ test("Comedia's art: a backdrop that does not load is skipped, then posters, the
     delete pages[comedia];
     delete pages[`${SKB}/generos/comedia?page=1`];
   }
+});
+
+test("SeriesKao's 2026-11 series page: episode-item cards (no href) become /temporada/N/capitulo/M refs with their titles", () => {
+  const html = `<div><a class="episode-item" data-episode-link data-season="1" data-episode="1"><span class="episode-item__title">1. Secretos</span></a>`
+    + `<a class="episode-item" data-episode-link data-season="1" data-episode="2"><span class="episode-item__title">Episodio 2</span></a>`
+    + `<a class="episode-item" data-episode-link data-season="2" data-episode="1"><span class="episode-item__title">Sic mundus creatus est</span></a></div>`;
+  const eps = plugin.parseEpisodes("sk", html, "/serie/dark");
+  assert.deepEqual(eps.map((e) => e.ref), ["sk|/serie/dark/temporada/1/capitulo/1", "sk|/serie/dark/temporada/1/capitulo/2", "sk|/serie/dark/temporada/2/capitulo/1"]);
+  assert.equal(eps[0].title, "Secretos");
+  assert.equal(eps[1].title, undefined, "a bare 'Episodio 2' is not a title");
+  assert.deepEqual(plugin.parseEpisodes("sk", html), [], "without the show's path the cards can't be addressed");
+});
+
+test("embed69's 2026-11 scheme: key = SHA-256(LINK_CHALLENGE + LINK_SALT), each link a base64 iv+ciphertext wrapped in backticks", async () => {
+  const { createCipheriv, randomBytes } = await import("node:crypto");
+  const challenge = "abc123", salt = "pepper";
+  const key = Buffer.from(createHash("sha256").update(challenge + salt).digest("hex"), "hex");
+  const enc = (plain) => { const iv = randomBytes(16); const c = createCipheriv("aes-256-cbc", key, iv); return Buffer.concat([iv, c.update(plain, "utf8"), c.final()]).toString("base64"); };
+  const html = `<script>const LINK_CHALLENGE = '${challenge}'; const LINK_SALT = '${salt}';
+    let dataLink = [{"video_language":"LAT","sortedEmbeds":[{"servername":"vidhide","link":"${enc("`https://morencius.com/embed/x1`")}"},{"servername":"download","link":"${enc("`https://dl.example/f`")}"}]},{"video_language":"SUB","sortedEmbeds":[{"servername":"voe","link":"${enc("`https://voe.sx/e/y2`")}"}]}];</script>`;
+  const ans = plugin.embed69Answer(html);
+  assert.equal(ans.why, "ok");
+  assert.deepEqual(ans.servers.map((s) => [s.lang, s.server, s.url]), [["LAT", "vidhide", "https://morencius.com/embed/x1"], ["SUB", "voe", "https://voe.sx/e/y2"]]);
+});
+
+test("Anubis: the challenge block is read (randomData, id, difficulty); a normal page is not a challenge", () => {
+  const page = `<script id="anubis_challenge" type="application/json">{"rules":{"algorithm":"fast","difficulty":4},"challenge":{"randomData":"r4nd","id":"01a2"}}</script>`;
+  assert.deepEqual(plugin.anubisChallenge(page), { data: "r4nd", id: "01a2", difficulty: 4 });
+  assert.equal(plugin.anubisChallenge("<html><title>Dark</title></html>"), null);
+});
+
+test("a resolved copy whose CDN does not answer moves on to the next server (no hidden page, no dead stream to the player)", async () => {
+  const sw = "https://dead-cdn.example/hls2/7vs/master.m3u8";
+  deadPlaylists.add(sw);
+  door = ({ url }) => (/hglink/.test(url) ? { streams: [{ url: sw, kind: "hls", referer: "https://vibuxer.com/e/7vs4vkrnf7ma" }] }
+    : /morencius/.test(url) ? { streams: [{ url: "https://morencius.com/stream/T/master.m3u8", kind: "hls", referer: "https://morencius.com/" }] } : NEEDS_BROWSER);
+  captured.length = 0;
+  const st = await withVidurl(() => plugin.resolve(DARK_EP));
+  assert.equal(st.label, "Latino · Vidhide");
+  assert.deepEqual(captured, [], "the streamwish page is not captured: its CDN is what failed");
+  assert.ok(!(st.alternatives || []).some((a) => a.url === sw), "the dead playlist is never offered");
 });

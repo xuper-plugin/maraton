@@ -1345,11 +1345,31 @@ function splitRef(ref) {
   return { siteId, site, path };
 }
 
-export function parseEpisodes(siteId, html) {
+/**
+ * The episodes of a series page. SeriesKao's 2026-11 redesign lists them as `<a class="episode-item" data-episode-link
+ * data-season="N" data-episode="M">` with no href (the player page is still `<show>/temporada/N/capitulo/M`), so with
+ * [showPath] those are read too; the older `/temporada/N/capitulo/N` links are still understood.
+ */
+export function parseEpisodes(siteId, html, showPath = "") {
   const site = SITES[siteId];
   const rx = new RegExp(site.episodeRx.source, "gi");
   const seen = new Set();
   const out = [];
+  const base = String(showPath || "").replace(/\/+$/, "");
+  if (base) {
+    for (const e of String(html || "").split('class="episode-item"').slice(1)) {
+      const sm = /^[^>]*data-season="(\d+)"/.exec(e), em = /^[^>]*data-episode="(\d+)"/.exec(e);
+      if (!sm || !em) continue;
+      const season = parseInt(sm[1], 10), number = parseInt(em[1], 10);
+      const path = `${base}/temporada/${season}/capitulo/${number}`;
+      if (!season || !number || seen.has(path)) continue;
+      seen.add(path);
+      const ep = { season, number, ref: `${siteId}|${path}` };
+      const t = text((/episode-item__title">([\s\S]*?)<\/span>/i.exec(e) || [])[1] || "").replace(/^\d+[\s.·:-]*/, "").trim();
+      if (t && !/^(episodio|cap[ií]tulo)\s*\d+$/i.test(t)) ep.title = t.slice(0, 200);
+      out.push(ep);
+    }
+  }
   let m;
   while ((m = rx.exec(html))) {
     const path = pathOf(site, decode(m[1]));
@@ -1373,7 +1393,7 @@ export async function episodes(ref) {
   if (String(ref).startsWith("sl|")) return slEpisodesOf(String(ref));
   const { siteId, site, path } = splitRef(ref);
   const html = await page(site, path);
-  const list = parseEpisodes(siteId, html);
+  const list = parseEpisodes(siteId, html, path);
   if (!list.length) throw kino.error("not_found", "la serie no tiene episodios en " + site.name);
   const perSeason = {};
   for (const e of list) perSeason[e.season] = (perSeason[e.season] || 0) + 1;
@@ -1642,6 +1662,11 @@ export function embed69Answer(html) {
   const m = /decryptLink\(server\.link,\s*'(.+?)'\),/.exec(h);
   if (m) keyHex = utf8ToHex(m[1]);
   if (!keyHex) {
+    // Since 2026-11 the key is SHA-256(LINK_CHALLENGE + LINK_SALT), both quoted in the page (no proof of work).
+    const ch = /LINK_CHALLENGE\s*=\s*'([^']*)'/.exec(h), salt = /LINK_SALT\s*=\s*'([^']*)'/.exec(h);
+    if (ch && salt) keyHex = kino.crypto.hash("sha256", ch[1] + salt[1]);
+  }
+  if (!keyHex) {
     const pm = /POW_CHALLENGE\s*=\s*'([^']+)';[\s\S]*?POW_DIFFICULTY\s*=\s*(\d+);[\s\S]*?POW_SALT\s*=\s*'([^']+)';/.exec(h);
     if (pm) keyHex = solvePow(pm[1], parseInt(pm[2], 10), pm[3]);
   }
@@ -1655,8 +1680,9 @@ export function embed69Answer(html) {
     const lang = (sec && sec.video_language) || "LAT";
     for (const emb of (sec && sec.sortedEmbeds) || []) {
       if (!emb || emb.servername === "download") continue;
-      const url = crylink(emb.link, keyHex);
-      if (url && /^https?:\/\//.test(url)) out.push({ lang, server: String(emb.servername || hostLabel(url)).toLowerCase(), url: url.trim(), referer: EMBED69_REFERER });
+      // A decrypted link may come wrapped in backticks (2026-11 scheme).
+      const url = String(crylink(emb.link, keyHex) || "").replace(/`/g, "").trim();
+      if (url && /^https?:\/\//.test(url)) out.push({ lang, server: String(emb.servername || hostLabel(url)).toLowerCase(), url, referer: EMBED69_REFERER });
     }
   }
   out.sort((a, b) => (/lat/i.test(b.lang) ? 1 : 0) - (/lat/i.test(a.lang) ? 1 : 0));
@@ -1668,12 +1694,56 @@ export function embed69Servers(html) {
   return embed69Answer(html).servers;
 }
 
+// ---------- Anubis (the proof-of-work anti-bot embed69.org put in front of its pages, 2026-11) ----------
+//
+// A gated request gets a "Making sure you're not a bot!" page whose `<script id="anubis_challenge">` JSON carries
+// `{ challenge: { randomData, id }, rules: { difficulty } }`. The answer is the first nonce whose
+// SHA-256(randomData + nonce) starts with `difficulty` zeros, sent to pass-challenge; Anubis then sets an auth cookie
+// that Kino keeps, so only the first gated read of a session pays the work (same as the Embed69 plugin's solver).
+
+const ANUBIS_API = "/.within.website/x/cmd/anubis/api/pass-challenge";
+
+/** The Anubis challenge of a page, `{ data, id, difficulty }`, or null when the page is not one. */
+export function anubisChallenge(html) {
+  const m = /<script id="anubis_challenge"[^>]*>([\s\S]*?)<\/script>/.exec(String(html || ""));
+  if (!m) return null;
+  let j;
+  try { j = JSON.parse(m[1]); } catch (_) { return null; }
+  const c = j && j.challenge, r = j && j.rules;
+  if (!c || typeof c.randomData !== "string" || typeof c.id !== "string" || !r) return null;
+  const difficulty = Number(r.difficulty);
+  if (!Number.isInteger(difficulty) || difficulty < 1 || difficulty > 6) return null;
+  return { data: c.randomData, id: c.id, difficulty };
+}
+
+/** Solve a gated page's challenge, pass it, and read [url] again; the second read's HTML, or null when it did not pass. */
+async function throughAnubis(url, html, headers) {
+  const ch = anubisChallenge(html);
+  if (!ch) return html;
+  const t0 = Date.now();
+  const zeros = "0".repeat(ch.difficulty);
+  let sol = null;
+  for (let nonce = 0; nonce < 20000000 && !sol; nonce++) {
+    const hash = kino.crypto.hash("sha256", ch.data + nonce);
+    if (hash.startsWith(zeros)) sol = { hash, nonce };
+  }
+  if (!sol) return null;
+  const origin = originOf(url);
+  const pass = `${origin}${ANUBIS_API}?id=${encodeURIComponent(ch.id)}&response=${sol.hash}&nonce=${sol.nonce}&redir=${encodeURIComponent(url)}&elapsedTime=${Math.max(1000, Date.now() - t0)}`;
+  try { const rp = await kino.fetch(pass, { headers, timeoutMs: LIMITS.fetchMs }); rp.text(); } catch (_) { /* the cookie may still have been set */ }
+  const r2 = await kino.fetch(url, { headers, timeoutMs: LIMITS.fetchMs });
+  const again = r2 && r2.ok ? r2.text() : null;
+  kino.log(`anubis ${safe(url)}: difficulty ${ch.difficulty}, nonce ${sol.nonce}, ${anubisChallenge(again) ? "still gated" : "passed"} in ${Date.now() - t0} ms`);
+  return again && !anubisChallenge(again) ? again : null;
+}
+
 /** One embed69 page read and classified; a title it does not list is a quiet [], a changed page is reported. */
 async function embed69From(url, referer, siteId) {
   const t0 = Date.now();
+  const headers = { "User-Agent": UA, Accept: "text/html", Referer: referer };
   let r;
   try {
-    r = await kino.fetch(url, { headers: { "User-Agent": UA, Accept: "text/html", Referer: referer }, timeoutMs: LIMITS.fetchMs });
+    r = await kino.fetch(url, { headers, timeoutMs: LIMITS.fetchMs });
   } catch (e) {
     kino.log(`embed69 ${safe(url)}: ${e.code || ""} ${e.message}`);
     report("maraton:embed69", "fetch", `site=${siteId}`, `code=${e.code || "network"}`);
@@ -1684,7 +1754,12 @@ async function embed69From(url, referer, siteId) {
     if (r.status !== 404) report("maraton:embed69", "http", `site=${siteId}`, `status=${r.status}`);
     return [];
   }
-  const { servers, why } = embed69Answer(r.text());
+  let html = r.text();
+  if (anubisChallenge(html)) {
+    try { html = await throughAnubis(url, html, headers); } catch (e) { html = null; kino.log(`anubis ${safe(url)}: ${e.code || ""} ${e.message}`); }
+    if (html == null) { report("maraton:embed69", "anubis", `site=${siteId}`); return []; }
+  }
+  const { servers, why } = embed69Answer(html);
   kino.log(`embed69 ${safe(url)}: ${why}, ${servers.length} server(s) in ${Date.now() - t0} ms [${servers.map((f) => `${f.lang}/${f.server}@${startHost(f.url)}`).join(", ")}]`);
   // The page loaded but nothing decrypted: embed69 changed its page (key, proof of work or dataLink).
   if (why !== "ok" && why !== "not_listed") report("maraton:embed69", why, `site=${siteId}`, `ms=${Date.now() - t0}`);
@@ -1699,137 +1774,103 @@ async function fastServers(site, episodeUrl, servers) {
   return out;
 }
 
-// ---------- reading an embed's own playlist (no hidden browser) ----------
+// ---------- reading an embed's playlist through the shared Kino Resolver (no hidden browser) ----------
 //
-// Measured 2026-10-04: vimeos.net, morencius.com (vidhide), hlswish.com (streamwish; the ids hglink.to hands out work
-// there too) and goodstream.one write the playlist into their page — vidhide and streamwish as `links = { hls4, hls2,
-// hls3 }` inside a p,a,c,k,e,d-packed script, vimeos as a packed jwplayer `sources`, goodstream in the clear.
-// videoapp.zip frames a vimeos page. The playlist's token is tied to the address that read the page (and some CDNs to
-// its User-Agent), so the page is read with [UA] and the Stream carries that same User-Agent and the embed's Referer:
-// the player then asks exactly as the page's own player would.
+// Every hoster embed is opened by the shared kino-resolver (its provider door, `kino.plugins.call("resolver", ...)`):
+// it reads the player page with plain requests (vidhide, streamwish and its mirrors, vimeos, goodstream, filemoon,
+// mp4upload, streamtape, mixdrop, dood, okru, uqload, vidmoly, ...) and keeps those readers up to date in one place.
+// PelisYSeries used to carry its own copies; they went stale (its streamwish reader rewrote hglink ids to hlswish.com,
+// which is now a parked domain). The door is asked for EVERY server: for a host it does not know it answers at once
+// ("needs_browser") and the hidden browser below takes over, so no server is left out up front. Without the resolver
+// installed, every server simply goes to the hidden browser (slower, but it still plays).
+// videoapp.zip (AllCalidad) only frames the real player (a vimeos page): that one hop is unwrapped here.
 
-/** Hosts whose page carries the playlist; `page` maps an embed URL to the page that is read. */
-const EXTRACTORS = [
-  { name: "vimeos", rx: /(^|\.)vimeos\.net$/i, page: (u) => u },
-  { name: "goodstream", rx: /(^|\.)goodstream\.one$/i, page: (u) => u },
-  { name: "vidhide", rx: /(^|\.)morencius\.com$/i, page: (u) => u },
-  { name: "streamwish", rx: /(^|\.)(hglink\.to|hlswish\.com)$/i, page: (u) => u.replace(/^https:\/\/[^/]+\/e\/([A-Za-z0-9]+).*$/, "https://hlswish.com/e/$1") },
-  { name: "videoapp", rx: /(^|\.)videoapp\.zip$/i, page: (u) => u, frames: true },
-];
+/** Hosts the resolver opens with plain requests (no hidden browser): they are tried first, and on a device without a
+ *  usable WebView they are the only ones that can play. voe is left out: it asks for a human check, so it needs the browser. */
+const RESOLVER_INLINE = /(^|\.)(vimeos\.(net|zip)|videoapp\.zip|goodstream\.one|morencius\.com|callistanise\.com|smoothpre\.com|minochinos\.com|vidhide[a-z]*\.com|filelions\.[a-z]+|hglink\.to|hlswish\.com|vibuxer\.com|streamwish\.[a-z]+|embedwish\.com|playerwish\.com|iplayerhls\.com|mp4upload\.com|streamtape\.[a-z]+|mixdrop\.[a-z]+|uqload\.[a-z]+|ok\.ru|vidmoly\.[a-z]+|filemoon\.[a-z]+|bysekoze\.com)$/i;
+export const canExtract = (f) => RESOLVER_INLINE.test(startHost((f && f.url) || ""));
 
-const extractorOf = (f) => EXTRACTORS.find((x) => x.rx.test(startHost((f && f.url) || ""))) || null;
-export const canExtract = (f) => !!extractorOf(f);
-
-/** Every `eval(function(p,a,c,k,e,d){…}('…',a,c,'…'.split('|')…))` in [html], unpacked. */
-export function unpackAll(html) {
-  const out = [];
-  const rx = /\}\('((?:[^'\\]|\\.)*)',\s*(\d+),\s*(\d+),\s*'((?:[^'\\]|\\.)*)'\.split\('\|'\)/g;
-  let m;
-  while ((m = rx.exec(String(html || "")))) {
-    const a = parseInt(m[2], 10);
-    let c = parseInt(m[3], 10);
-    const k = m[4].split("|");
-    const p = m[1].replace(/\\'/g, "'").replace(/\\\\/g, "\\");
-    if (!(a >= 2 && a <= 62) || c > 50000) continue;
-    const enc = (n) => (n < a ? "" : enc(Math.floor(n / a))) + ((n = n % a) > 35 ? String.fromCharCode(n + 29) : n.toString(36));
-    const dict = Object.create(null);
-    while (c--) dict[enc(c)] = k[c] || enc(c);
-    out.push(p.replace(/\b\w+\b/g, (w) => (w in dict ? dict[w] : w)));
-  }
-  return out.join("\n");
-}
-
-/** The playlists and subtitles an embed page writes for its player: `{ playlists: [url], subtitles: [{ url, label }], gone }`. */
-export function playlistsOf(html, pageUrl) {
-  const src = `${html}\n${unpackAll(html)}`;
-  const playlists = [];
-  const add = (u) => {
-    if (!u || typeof u !== "string") return;
-    let url = u.replace(/\\\//g, "/").trim();
-    if (url.startsWith("/") && !url.startsWith("//")) url = originOf(pageUrl) + url;
-    // Only real .m3u8 playlists: the `hls3` master.txt hung on every read measured (2026-10-04), a dead alternative.
-    if (/^https:\/\//.test(url) && /\.m3u8(\?|$)/i.test(url) && !looksLikeAd(url) && !playlists.includes(url)) playlists.push(url);
-  };
-  const links = /links\s*=\s*(\{[^{}]*\})/.exec(src);
-  if (links) {
-    try {
-      const o = JSON.parse(links[1]);
-      for (const k of ["hls4", "hls2", "hls3"]) add(o[k]);
-      for (const k of Object.keys(o)) add(o[k]);
-    } catch (_) { /* the sources below */ }
-  }
-  const files = /(?:file|src)\s*:\s*["']([^"']+)["']/g;
-  let m;
-  while ((m = files.exec(src))) add(m[1]);
-  const subtitles = [];
-  const tracks = /\{\s*file\s*:\s*"([^"]+\.(?:vtt|srt)[^"]*)"\s*,\s*label\s*:\s*"([^"]*)"\s*,\s*kind\s*:\s*"captions"/g;
-  while ((m = tracks.exec(src))) {
-    if (/^https:\/\//.test(m[1]) && !/empty\.srt/.test(m[1])) subtitles.push({ url: m[1], label: m[2] });
-  }
-  const gone = /file is no longer available|file was deleted|video not found|has been deleted|file not found/i.test(html);
-  return { playlists, subtitles, gone };
-}
-
-/** The headers a playlist from [pageUrl] goes with: our User-Agent (the one that read the page) and the page as Referer. */
-export function extractedHeaders(pageUrl, mediaUrl) {
-  const origin = originOf(pageUrl);
-  const h = { "User-Agent": UA, Referer: origin + "/" };
-  if (startHost(mediaUrl) !== startHost(pageUrl)) h.Origin = origin;
+/** A door/stream's headers ([{name,value}] or an object) with its referer, as the Stream's plain-object headers. */
+function doorHeaders(s) {
+  const h = {};
+  if (Array.isArray(s.headers)) for (const x of s.headers) { if (x && x.name) h[x.name] = String(x.value); }
+  else if (s.headers && typeof s.headers === "object") for (const [k, v] of Object.entries(s.headers)) { if (v != null) h[k] = String(v); }
+  if (s.referer && !h.Referer) h.Referer = s.referer;
+  if (!h["User-Agent"]) h["User-Agent"] = UA;
   return h;
 }
 
+let resolverMissingLogged = false;
+
+/** How long the 2 KB peek at a resolved playlist may take. */
+const PEEK_MS = 4000;
+
+/** Whether a resolved stream's address answers: a peek (maxBytes + Range, so a whole-file host is not downloaded);
+ *  an HLS playlist must start like one. A 401/403 (a token tied to the player) is trusted. Never throws. */
+async function answers(s, timeoutMs) {
+  try {
+    const r = await kino.fetch(s.url, { headers: { ...doorHeaders(s), Range: "bytes=0-2047" }, timeoutMs, maxBytes: 2048 });
+    if (r.status === 401 || r.status === 403) return true;
+    if (!r.ok) return false;
+    const hls = s.kind === "hls" || /\.m3u8(\?|$)/i.test(s.url);
+    return !hls || /^\s*#EXTM3U/.test(r.text() || "");
+  } catch (e) {
+    return !!(e && (e.code === "host_not_allowed" || e.code === "too_large"));
+  }
+}
+
 /**
- * One server's playlist read from its page with kino.fetch, as a capture-shaped answer `{ media, subtitles, how }`;
- * `{ gone: true }` when the page says the file was deleted and `{ down }` when the host did not answer (no hidden page
- * will do better in either case); null (logged) when the page answered without a playlist. Never throws.
+ * One server's playlist through the resolver, as a capture-shaped answer `{ media, subtitles, how }`; `{ gone: true }`
+ * when the resolver read the page and the file was deleted (no hidden page will do better); null when it had no inline
+ * stream (a gated host, an unknown one, or the resolver not installed): the hidden browser is the next step. Never throws.
  */
 async function extractServer(f, timeoutMs) {
-  const x = extractorOf(f);
-  if (!x) return null;
   const t0 = Date.now();
-  let url = x.page(f.url);
+  let url = f.url;
   let referer = f.referer || EMBED69_REFERER;
   try {
-    for (let hop = 0; hop < 2; hop++) {
+    if (/(^|\.)videoapp\.zip$/i.test(startHost(url))) {
       const r = await kino.fetch(url, { headers: { "User-Agent": UA, Accept: "text/html", Referer: referer }, timeoutMs: Math.max(1000, Math.min(timeoutMs, LIMITS.fetchMs)) });
-      if (!r.ok) {
-        kino.log(`extract ${x.name}: ${safe(url)} -> ${r.status}`);
-        return null;
-      }
+      if (!r.ok) { kino.log(`extract videoapp: ${safe(url)} -> ${r.status}`); return null; }
       const html = r.text();
-      if (x.frames && hop === 0) {
-        // videoapp: the real player is the page it frames.
-        const inner = (/<iframe[^>]+src="(https:\/\/[^"]+)"/i.exec(html) || [])[1];
-        if (!inner || !EXTRACTORS.some((e) => !e.frames && e.rx.test(startHost(inner)))) {
-          kino.log(`extract ${x.name}: no player frame (${/no disponible/i.test(html) ? "not available" : "changed"})`);
-          return null;
-        }
-        referer = originOf(url) + "/";
-        // Framed with `?cf=<session>` the vimeos page is another player (its setup compressed in the page); without
-        // it, the plain embed page with its packed playlist (measured 2026-10-04).
-        url = decode(inner).split("?")[0];
-        continue;
-      }
-      const { playlists, subtitles, gone } = playlistsOf(html, url);
-      if (!playlists.length) {
-        kino.log(`extract ${x.name}: ${gone ? "file gone" : "no playlist in the page"} after ${Date.now() - t0} ms`);
-        if (gone) return { gone: true };
-        report("maraton:extract", "no_playlist", `server=${x.name}`);
-        return null;
-      }
-      kino.log(`extract ${x.name}: ${playlists.length} playlist(s) in ${Date.now() - t0} ms [${playlists.map(safe).join(", ")}]`);
-      return {
-        how: "page",
-        media: playlists.map((u) => ({ url: u, mime: "application/vnd.apple.mpegurl", headers: extractedHeaders(url, u) })),
-        subtitles: subtitles.slice(0, 5).map((s) => ({ url: s.url })),
-      };
+      const inner = (/<iframe[^>]+src="(https:\/\/[^"]+)"/i.exec(html) || [])[1];
+      if (!inner) { kino.log(`extract videoapp: no player frame (${/no disponible/i.test(html) ? "not available" : "changed"})`); return null; }
+      referer = originOf(url) + "/";
+      // Framed with `?cf=<session>` the vimeos page is another player; without it, the plain embed page (2026-10-04).
+      url = decode(inner).split("?")[0];
     }
+    const res = await within(kino.plugins.call("resolver", "resolve", { url, referer }), Math.max(1000, timeoutMs), null);
+    if (!res) { kino.log(`resolver ${hostLabel(url)}: no answer in ${Date.now() - t0} ms`); return null; }
+    const streams = (Array.isArray(res.streams) ? res.streams : []).filter((s) => s && /^https:\/\//.test(s.url || "") && !looksLikeAd(s.url));
+    if (!streams.length) {
+      kino.log(`resolver ${hostLabel(url)}: ${res.error || "no stream"} in ${Date.now() - t0} ms`);
+      return res.error === "dead" ? { gone: true } : null;
+    }
+    kino.log(`resolver ${hostLabel(url)}: ${streams.length} stream(s) in ${Date.now() - t0} ms [${streams.map((s) => safe(s.url)).join(", ")}]`);
+    // The playlist's CDN can be down for one file while the hoster page is fine (a streamwish CDN node answering 504 or
+    // nothing, measured 2026-11-22): peek at it (2 KB) so a dead copy moves on to the next server instead of reaching
+    // the player. Only the first one that answers is kept first.
+    const live = [];
+    for (const s of streams) {
+      if (live.length) { live.push(s); continue; }
+      if (await answers(s, Math.min(PEEK_MS, Math.max(1000, timeoutMs - (Date.now() - t0))))) live.push(s);
+    }
+    if (!live.length) {
+      kino.log(`resolver ${hostLabel(url)}: the playlist does not answer (${streams.length} tried) after ${Date.now() - t0} ms`);
+      return { unplayable: true };
+    }
+    const subtitles = (Array.isArray(res.subtitles) ? res.subtitles : []).filter((s) => s && /^https:\/\//.test(s.url || "")).slice(0, 5).map((s) => ({ url: s.url }));
+    return {
+      how: "resolver",
+      media: live.map((s) => ({ url: s.url, mime: /\.mp4(\?|$)/i.test(s.url) && s.kind !== "hls" ? "video/mp4" : "application/vnd.apple.mpegurl", headers: doorHeaders(s) })),
+      subtitles,
+    };
   } catch (e) {
-    kino.log(`extract ${x.name}: ${e.code || ""} ${e.message} after ${Date.now() - t0} ms`);
-    // The embed's own host does not answer this device: its hidden page would not load either.
-    if (e.code === "timeout" || e.code === "network") return { down: e.code };
+    if (e && e.code === "provider_missing") {
+      if (!resolverMissingLogged) { resolverMissingLogged = true; kino.log("resolver not installed: every server goes to the hidden browser"); }
+    } else kino.log(`resolver ${hostLabel(url)}: ${(e && e.code) || ""} ${(e && e.message) || e} after ${Date.now() - t0} ms`);
+    return null;
   }
-  return null;
 }
 
 // ---------- resolve: choosing the order ----------
@@ -2352,7 +2393,8 @@ async function playOn(base, run, only) {
   const canCapture = () => !run.captureOff && !browserMissing();
 
   const finish = async (got, target) => {
-    if (got.how !== "page") got.media = await filmMedia(got.media);
+    // What the resolver read is the player's own playlist (like the old page reads): only a capture needs the ad filter.
+    if (got.how !== "page" && got.how !== "resolver") got.media = await filmMedia(got.media);
     if (!got.media.length) {
       failedHere.add(target.url);
       if (target.server) markServer(siteId, target, true);
@@ -2415,24 +2457,19 @@ async function playOn(base, run, only) {
     return null;
   };
 
-  // 2. In order: a server whose page carries its playlist is read directly (about a second); one that needs the hidden
-  //    browser gets a window sized for it. A failure moves on at once; a dead page never eats the whole budget.
+  // 2. In order: every server is first asked of the shared resolver (about a second for a host it reads, at once for one
+  //    it doesn't); one it can't open inline gets the hidden browser, with a window sized for it. A failure moves on at
+  //    once; a deleted file never reaches the browser.
   for (const f of servers) {
     if (left() < 3000) break;
-    if (canExtract(f)) {
-      const got = await extractServer(f, Math.min(LIMITS.extractMs, left() - 2000));
-      if (got && got.gone) { failedHere.add(f.url); continue; }
-      if (got && got.down) {
-        failedHere.add(f.url);
-        markServer(siteId, f, true);
-        report("maraton:extract", "host_down", `server=${serverName(f)}`, `code=${got.down}`);
-        continue;
-      }
-      const stream = got ? await finish(got, f) : null;
-      if (stream) return { stream };
-      // Its page did not give the playlist: the hidden browser may still find it (videoapp only frames vimeos).
-      if (f.url.includes("videoapp.zip")) continue;
-    }
+    const got = await extractServer(f, Math.min(LIMITS.extractMs, left() - 2000));
+    if (got && got.gone) { failedHere.add(f.url); markServer(siteId, f, true); continue; }
+    // Resolved, but its CDN does not answer for this file: a hidden page would hit the same CDN. Next server.
+    if (got && got.unplayable) { failedHere.add(f.url); continue; }
+    const direct = got ? await finish(got, f) : null;
+    if (direct) return { stream: direct };
+    // videoapp only frames a vimeos page that the same title usually lists by itself: no hidden page for it.
+    if (f.url.includes("videoapp.zip")) continue;
     if (!canCapture()) { skippedForBrowser++; continue; }
     if (captures >= MAX_CAPTURES) { later.push(f); continue; }
     const stream = await capture(f);
