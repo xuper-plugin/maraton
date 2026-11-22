@@ -1517,8 +1517,34 @@ export function failedServers(siteId, nowMs = Date.now()) {
   return new Set(Object.keys(all).filter((k) => all[k] > nowMs));
 }
 
+// ---------- what each server has done for this person (the "ranking") ----------
+//
+// Every success and failure markServer sees is also counted per server, Laplace-smoothed ((ok+1)/(ok+fail+2), unknown =
+// 0.5) and halved past STATS_CAP so a server that recovers climbs back. rankServers puts the servers that load for this
+// person first (after the language and "Probar primero"); with no history every server scores the same and the usual
+// order stands. Kept in kino.storage, which follows the person to their other devices.
+const STATS_KEY = "srvStats";
+const STATS_CAP = 24;
+
+/** A server name -> its learned score (0..1). */
+export function serverScores() {
+  const all = storageGet(STATS_KEY) || {};
+  return (name) => { const s = all[name] || { ok: 0, fail: 0 }; return (s.ok + 1) / (s.ok + s.fail + 2); };
+}
+
+function learnServer(name, ok) {
+  if (!name || name === "episode_page" || name === "other") return;
+  const all = storageGet(STATS_KEY) || {};
+  const s = all[name] || { ok: 0, fail: 0 };
+  s[ok ? "ok" : "fail"] += 1;
+  if (s.ok + s.fail > STATS_CAP) { s.ok = Math.round(s.ok / 2); s.fail = Math.round(s.fail / 2); }
+  all[name] = s;
+  storageSet(STATS_KEY, all);
+}
+
 function markServer(siteId, f, failed) {
   const name = serverName(f);
+  learnServer(name, !failed);
   if (name === "episode_page") return;
   const all = storageGet(failedKey(siteId)) || {};
   const now = Date.now();
@@ -1933,19 +1959,22 @@ export function langOf(raw) {
 
 /**
  * The person's language first ("Idioma preferido", default Latino), then the other two in [LANGS] order; within a
- * language the server "Probar primero" names, then the servers whose page carries its own playlist (no hidden browser,
- * about a second; on a device without a usable browser the only ones that can play), then the one that last produced a
- * video on this site ([remembered]), then [SERVER_PREFERENCE]; the page's own order breaks ties.
+ * language the server "Probar primero" names, then the servers the resolver reads without the hidden browser (a second
+ * or two; on a device without a usable browser the only ones that can play), and inside each of those two groups the
+ * server that has loaded best for this person ([score], the learned ranking; equal for all when there is no history),
+ * then the one that last produced a video on this site ([remembered]), then [SERVER_PREFERENCE]; the page's own order
+ * breaks ties. (Inside the groups, so a server that failed once is still tried before a 20 s hidden page.)
  */
-export function rankServers(list, preferred = "lat", remembered = "", chosen = "auto") {
+export function rankServers(list, preferred = "lat", remembered = "", chosen = "auto", score = null) {
   const langOrder = [preferred, ...LANGS.filter((l) => l !== preferred)];
   const langRank = (f) => { const i = langOrder.indexOf(langOf(f.lang)); return i < 0 ? LANGS.length : i; };
   const pick = (f) => (chosen && chosen !== "auto" && serverMatches(f, chosen) ? 0 : 1);
+  const learned = (f) => (score ? -score(serverName(f)) : 0);
   const direct = (f) => (canExtract(f) ? 0 : 1);
   const memo = (f) => (remembered && ((f.server || "").toLowerCase() === remembered || serverName(f) === remembered) ? 0 : 1);
   return list
     .map((f, i) => ({ f, i }))
-    .sort((a, b) => (langRank(a.f) - langRank(b.f)) || (pick(a.f) - pick(b.f)) || (direct(a.f) - direct(b.f)) || (memo(a.f) - memo(b.f)) || (serverRank(a.f) - serverRank(b.f)) || (a.i - b.i))
+    .sort((a, b) => (langRank(a.f) - langRank(b.f)) || (pick(a.f) - pick(b.f)) || (direct(a.f) - direct(b.f)) || (learned(a.f) - learned(b.f)) || (memo(a.f) - memo(b.f)) || (serverRank(a.f) - serverRank(b.f)) || (a.i - b.i))
     .map((x) => x.f);
 }
 
@@ -2377,7 +2406,7 @@ async function playOn(base, run, only) {
     return { why: "list_failed", error: e, servers: 0 };
   }
   if (!listed) return { why: "list_timeout", servers: 0 };
-  let servers = lastIfFailed(rankServers(listed.servers, lang, remembered, chosen), failed);
+  let servers = lastIfFailed(rankServers(listed.servers, lang, remembered, chosen, serverScores()), failed);
   if (only) {
     servers = servers.filter((f) => langOf(f.lang) === only.lang && ((f.server || "").toLowerCase() === only.server || serverName(f) === only.server));
     if (!servers.length) throw kino.error("not_found", `sin el servidor ${only.lang}/${only.server}`, { userMessage: "Ese servidor ya no está disponible para este video." });
@@ -2465,7 +2494,7 @@ async function playOn(base, run, only) {
     const got = await extractServer(f, Math.min(LIMITS.extractMs, left() - 2000));
     if (got && got.gone) { failedHere.add(f.url); markServer(siteId, f, true); continue; }
     // Resolved, but its CDN does not answer for this file: a hidden page would hit the same CDN. Next server.
-    if (got && got.unplayable) { failedHere.add(f.url); continue; }
+    if (got && got.unplayable) { failedHere.add(f.url); learnServer(serverName(f), false); continue; }
     const direct = got ? await finish(got, f) : null;
     if (direct) return { stream: direct };
     // videoapp only frames a vimeos page that the same title usually lists by itself: no hidden page for it.

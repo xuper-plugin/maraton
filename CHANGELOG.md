@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.1
+
+- **The server that loads best for you goes first** (a learned ranking, like the other xuper-plugin sources): every success and failure (a capture that found nothing, only ads, a deleted file, a refused stream, a resolved playlist whose CDN does not answer) is counted per server, Laplace-smoothed and decaying, kept in your storage. Inside your language, and after "Probar primero", the servers that load for you are tried first — within each group (the ones read without the hidden browser first, then the ones that need it), so a server that failed once is still tried before a 20 s hidden page. With no history the order is the usual one. Measured on Breaking Bad (its Streamwish CDN down): the first episode 9 s, the next ones 2.5-3 s.
+
 ## 0.7.0
 
 - **Every hoster now opens through the shared Kino Resolver** (`kino.plugins.call("resolver", "resolve")`, declared under `enhancements["20"].consumes` so an older Kino still installs this apiVersion-6 plugin, and `recommends`). PelisYSeries carried its own readers for vidhide, streamwish, vimeos and goodstream; they went stale (streamwish rewrote hglink ids to hlswish.com, now a parked domain, so every Streamwish copy failed). The resolver is asked for every server, known or not (an unknown host answers at once and goes to the hidden browser), so nothing is left out up front; videoapp.zip is still unwrapped here (it frames a vimeos page). Without the resolver every server still plays through the hidden browser.

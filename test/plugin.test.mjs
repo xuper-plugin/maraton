@@ -1553,3 +1553,33 @@ test("a resolved copy whose CDN does not answer moves on to the next server (no 
   assert.deepEqual(captured, [], "the streamwish page is not captured: its CDN is what failed");
   assert.ok(!(st.alternatives || []).some((a) => a.url === sw), "the dead playlist is never offered");
 });
+
+test("ranking: the server that has loaded best for this person goes first inside its language, never over the language or Probar primero", () => {
+  const list = [
+    { lang: "LAT", server: "streamwish", url: "https://hglink.to/e/l" },
+    { lang: "LAT", server: "vidhide", url: "https://morencius.com/embed/a" },
+    { lang: "SUB", server: "vidhide", url: "https://morencius.com/embed/s" },
+  ];
+  const vidhideWins = (name) => (name === "vidhide" ? 0.9 : name === "streamwish" ? 0.2 : 0.5);
+  assert.deepEqual(plugin.rankServers(list).map((f) => f.url)[0], "https://hglink.to/e/l", "no history: the usual order");
+  assert.deepEqual(plugin.rankServers(list, "lat", "", "auto", vidhideWins).map((f) => f.url),
+    ["https://morencius.com/embed/a", "https://hglink.to/e/l", "https://morencius.com/embed/s"], "learned order inside Latino, Subtitulado still after");
+  assert.equal(plugin.rankServers(list, "lat", "", "streamwish", vidhideWins)[0].server, "streamwish", "Probar primero still wins");
+});
+
+test("ranking end to end: a server whose copies fail sinks, and the next play asks the one that loaded first", async () => {
+  // streamwish resolves but its CDN is down; vidhide plays.
+  const sw = "https://dead-cdn.example/hls2/7vs/master.m3u8";
+  deadPlaylists.add(sw);
+  door = ({ url }) => (/hglink/.test(url) ? { streams: [{ url: sw, kind: "hls", referer: "https://vibuxer.com/e/x" }] }
+    : /morencius/.test(url) ? { streams: [{ url: "https://morencius.com/stream/T/master.m3u8", kind: "hls", referer: "https://morencius.com/" }] } : NEEDS_BROWSER);
+  assert.equal((await withVidurl(() => plugin.resolve(DARK_EP))).label, "Latino · Vidhide");
+  const score = plugin.serverScores();
+  assert.ok(score("vidhide") > score("streamwish"), "vidhide earned a win, streamwish a loss");
+  // Next play (the kept stream dropped): vidhide is asked before streamwish.
+  store.delete(`stream:${DARK_EP}`);
+  doorCalls.length = 0;
+  assert.equal((await withVidurl(() => plugin.resolve(DARK_EP))).label, "Latino · Vidhide");
+  const asked = doorCalls.filter((c) => c.method === "resolve").map((c) => c.url);
+  assert.match(asked[0], /morencius/, "the server that loaded is tried first now");
+});
