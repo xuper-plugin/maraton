@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.1
+
+- Back closes the search box instead of the screen; a tab Kino cut short offers Retry; a row's English title; a hero from TMDB when needed (std 1.6.0)
+
 ## 0.9.0
 
 - The standard xuper-plugin screen (src/std 1.5.0): one bar with the logo and the name, Buscar (the words go to Kino's own search) and Ajustes (Kino's own form of the settings, and the donation); a hero of slides; cards and slides open Kino's own title page. The plugin's own search page is gone. Still plays without Kino Resolver: no install gate. apiVersion 30 (Kino 0.9.91).

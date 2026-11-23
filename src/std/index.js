@@ -1,4 +1,4 @@
-// std 1.5.0 — the standard screen of the xuper-plugin site plugins (golden copy: C:\dev\xuper-plugin\_standard\src\std).
+// std 1.6.0 — the standard screen of the xuper-plugin site plugins (golden copy: C:\dev\xuper-plugin\_standard\src\std).
 // Copy this folder as it is into a plugin's src/std/; a change goes to the golden copy first, then to every plugin.
 //
 // It paints at once from what is kept, then fills each tab as the source answers:
@@ -16,12 +16,22 @@ import { makeMetaCache } from "./metaCache.js";
 const TAB_KEY = "browseTab";
 const SNAP_PREFIX = "browse1:";
 const SNAP_TTL_MS = 7 * 24 * 3600 * 1000;
+// A tab's kept copy: at most 20 KB, and all of them together about 96 KB of the plugin's 256 KB shared storage.
 const SNAP_MAX = 20 * 1024;
+const SNAPS_TOTAL = 96 * 1024;
 const RECENT_KEY = "recent1";
 const RECENT_MAX = 12;
 const Q_MAX = 200;
 // One tick's TMDB lookups: short, because the screen's events wait in line behind it (the titles left are asked on a later opening).
 const META_TICK_MS = 3_000;
+// At most this many titles asked of TMDB per tick (a poster-only tab with many rails would otherwise ask a hundred).
+const META_TICK_CARDS = 24;
+// Kino stops a call at 20 s, and three of the timer's calls failing in a row switch the timer off for the rest of the opening,
+// leaving the skeletons with no way out. Kino has no timers to cut a load short, so each load leaves a mark in kino.storage
+// and clears it when done: a mark older than a call can live means Kino stopped that load, and the next tick answers at once
+// with that tab failed (its Retry banner) instead of starting it again.
+const INFLIGHT_KEY = "std:inflight";
+const INFLIGHT_STALE_MS = 18_000;
 // A tab with no slides of its own asks TMDB again on the next tick, until MAX_SLIDES are known, every title was asked or this
 // many ticks passed.
 const MAX_META_TICKS = 10;
@@ -79,11 +89,12 @@ export function makeStandardScreen({ kino, name, nameEn, logo = null, logoAspect
       return o && Date.now() - o.at < SNAP_TTL_MS && o.data && Array.isArray(o.data.rails) ? o.data : null;
     } catch (_) { return null; }
   }
+  const snapMax = Math.min(SNAP_MAX, Math.floor(SNAPS_TOTAL / TAB_IDS.length));
   function writeSnap(tab, data) {
     for (let per = 10; per >= 3; per -= 2) {
       const slim = { slides: data.slides, posterSlides: data.posterSlides || [], rails: data.rails.map((r) => ({ ...r, items: r.items.slice(0, per) })) };
       const text = JSON.stringify({ at: Date.now(), data: slim });
-      if (text.length <= SNAP_MAX) { set(SNAP_PREFIX + tab, text, { ttlMs: SNAP_TTL_MS }); return; }
+      if (text.length <= snapMax) { set(SNAP_PREFIX + tab, text, { ttlMs: SNAP_TTL_MS }); return; }
     }
   }
   /** The first tab may be drawn from the rows the plugin's home() keeps, then refreshed. */
@@ -135,11 +146,26 @@ export function makeStandardScreen({ kino, name, nameEn, logo = null, logoAspect
     const data = enrich(dataOf(tab));
     const loaded = TAB_IDS.map((t) => memo.get(t)).filter(Boolean).map((m) => m.data);
     const pending = Array.isArray(st.pending) && st.pending.length > 0;
-    return browseView(cfg, { tab, data, recent: meta.dress(recentOf(readKeys(), loaded)), pending, failed: !!(st.failed && st.failed[tab]), device });
+    const searching = !!(c.route && c.route.name === "search");
+    return browseView(cfg, { tab, data, recent: meta.dress(recentOf(readKeys(), loaded)), pending, failed: !!(st.failed && st.failed[tab]), searching, device });
+  }
+
+  /** The tab whose load Kino cut short last time (its mark outlived any call), cleared once read; else null. */
+  function cutShort() {
+    try {
+      const o = JSON.parse(get(INFLIGHT_KEY) || "null");
+      if (!o || typeof o.tab !== "string") return null;
+      if (Date.now() - Number(o.at) < INFLIGHT_STALE_MS) return null;
+      kino.storage.remove(INFLIGHT_KEY);
+      return o.tab;
+    } catch (_) { return null; }
   }
 
   async function load(tab) {
-    const data = tabOf(await loadTab(tab));
+    set(INFLIGHT_KEY, JSON.stringify({ tab, at: Date.now() }));
+    let page;
+    try { page = await loadTab(tab); } finally { try { kino.storage.remove(INFLIGHT_KEY); } catch (_) { /* no storage */ } }
+    const data = tabOf(page);
     if (data) { memo.set(tab, { data, whole: true }); writeSnap(tab, data); }
     return data !== null;
   }
@@ -177,12 +203,18 @@ export function makeStandardScreen({ kino, name, nameEn, logo = null, logoAspect
         const ask = (x) => ({ id: x.id, title: x.title, kind: x.kind, ...(x.year !== undefined ? { year: x.year } : {}) });
         const noOwnSlides = m.data.slides.length === 0;
         // Without slides of its own a tab needs TMDB backdrops: more of its titles are asked, in row order.
-        const cards = [...m.data.slides.map(ask), ...m.data.rails.flatMap((r) => r.items.slice(0, noOwnSlides ? MAX_SLIDES * 3 : 6).map(ask))];
+        const cards = [...m.data.slides.map(ask), ...m.data.rails.flatMap((r) => r.items.slice(0, noOwnSlides ? MAX_SLIDES * 3 : 6).map(ask))]
+          .filter((c) => !meta.asked(c.id)).slice(0, META_TICK_CARDS);
         const count = await meta.fill(cards, META_TICK_MS);
         const ticks = (metaTicks.get(tab) || 0) + 1;
         metaTicks.set(tab, ticks);
         const again = noOwnSlides && count > 0 && ticks < MAX_META_TICKS && slidesFromMeta(m.data.rails).length < MAX_SLIDES && cards.some((c) => !meta.asked(c.id));
         return { state: { pending: again ? [next, ...rest] : rest } };
+      }
+      if (cutShort() === next) {
+        log("tab", next, "cut short by Kino last time");
+        failed[next] = true;
+        return { state: { pending: rest, failed } };
       }
       try {
         const ok = await load(next);
@@ -195,11 +227,18 @@ export function makeStandardScreen({ kino, name, nameEn, logo = null, logoAspect
       return { state: { pending: rest, failed } };
     },
     // The words go to Kino's own search, with this plugin as the source; the bar is put back as it was, locally.
-    search({ value, state, device }) {
+    // The search button's own event (after its local ops): the "search" route, so Kino's Back pops it instead of closing the
+    // screen. The local ops are dropped with it: the route's tree draws the box, and after a pop the main tree's defaults hold.
+    searchRoute({ route }) { return route && route.name === "search" ? null : { route: { push: "search" }, state: { ui: null } }; },
+    closeSearch({ route }) { return route && route.name === "search" ? { route: { pop: true }, state: { ui: null } } : { state: { ui: null } }; },
+    search({ value, state, device, route }) {
       const typed = value && typeof value === "object" ? value.q : value;
       const raw = typed != null && String(typed).trim() !== "" ? typed : state.inputs && state.inputs.q;
       const q = String(raw == null ? "" : raw).trim().slice(0, Q_MAX);
-      return q ? { go: { search: { q } }, ui: searchClosedOps(device === "tv" && TAB_IDS.length > 1) } : null;
+      if (!q) return null;
+      return route && route.name === "search"
+        ? { go: { search: { q } }, route: { pop: true }, state: { ui: null } }
+        : { go: { search: { q } }, ui: searchClosedOps(device === "tv" && TAB_IDS.length > 1) };
     },
     openSettings() { return { route: { push: "settings" }, state: { fromBrowse: true } }; },
     back({ state, route }) {

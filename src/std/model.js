@@ -59,7 +59,7 @@ const uniform = (items) => (items.every((i) => i.backdrop) ? items : items.map((
 export function railsOf(rows) {
   // A row marked `hidden` (a site carousel) feeds the slides only.
   return rows.filter((r) => !r.hidden && r.items && r.items.length > 0).slice(0, MAX_RAILS).map((r) => ({
-    id: r.id, title: r.title, ...(r.ref ? { ref: r.ref } : {}), items: uniform(r.items.slice(0, MAX_RAIL_ITEMS).map(cardOf)),
+    id: r.id, title: r.title, ...(r.titleEn ? { titleEn: r.titleEn } : {}), ...(r.ref ? { ref: r.ref } : {}), items: uniform(r.items.slice(0, MAX_RAIL_ITEMS).map(cardOf)),
   }));
 }
 
