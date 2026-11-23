@@ -3,6 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test test/plugin.test.mjs"
+    "build": "node scripts/build.mjs",
+    "check:built": "node scripts/build.mjs --check",
+    "test": "node --test test/plugin.test.mjs test/dropFetches.test.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.21.0"
   }
 }

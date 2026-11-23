@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.0
+
+- **Like the other xuper-plugin sources now (apiVersion 20)**: the shared resolver is declared under a top-level `consumes` (no `enhancements`), and PelisYSeries has **its own browse screen** in the menu (Series, Anime, Películas, Géneros: the same rows as its section, with search). No install gate: it still plays every server without the resolver, through the hidden browser. Needs Kino 0.9.81 or later.
+- **No more "¿Permitir conectarse a …?" in the middle of a play**: the 2 KB peek at a resolved playlist reaches whatever CDN the player hands back (`"fetchHosts": "any"`, https and public hosts only); before, the first play from a new CDN (acek-cdn.com, measured on Hamlet) stopped to ask.
+- The source moved to `src/`; `plugin.js` is built from it (`node scripts/build.mjs`) and then signed.
+
 ## 0.7.1
 
 - **The server that loads best for you goes first** (a learned ranking, like the other xuper-plugin sources): every success and failure (a capture that found nothing, only ads, a deleted file, a refused stream, a resolved playlist whose CDN does not answer) is counted per server, Laplace-smoothed and decaying, kept in your storage. Inside your language, and after "Probar primero", the servers that load for you are tried first — within each group (the ones read without the hidden browser first, then the ones that need it), so a server that failed once is still tried before a 20 s hidden page. With no history the order is the usual one. Measured on Breaking Bad (its Streamwish CDN down): the first episode 9 s, the next ones 2.5-3 s.

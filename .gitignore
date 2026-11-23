@@ -4,3 +4,4 @@
 sdk/config.json
 *.pem
 keys/
+node_modules/

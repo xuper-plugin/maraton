@@ -1,8 +1,8 @@
 {
   "id": "maraton",
   "name": "PelisYSeries",
-  "version": "0.7.1",
-  "apiVersion": 6,
+  "version": "0.8.0",
+  "apiVersion": 20,
   "entry": "plugin.js",
   "description": "Series, anime y películas en latino, castellano o subtitulado. El video se busca en tu propio aparato, sin servidores intermedios.",
   "author": "Equipo PelisYSeries",
@@ -20,6 +20,7 @@
     "filemoon.sx",
     "embed69.org"
   ],
+  "fetchHosts": "any",
   "capabilities": [
     "search",
     "scopedSearch",
@@ -28,7 +29,8 @@
     "episodes",
     "resolve",
     "meta",
-    "download"
+    "download",
+    "screen"
   ],
   "categories": [
     "series",
@@ -168,21 +170,32 @@
   "recommends": [
     "xuper-plugin/kino-plugin-kino-resolver"
   ],
-  "enhancements": {
-    "20": {
-      "consumes": {
-        "resolver": {
-          "repo": "xuper-plugin/kino-plugin-kino-resolver",
-          "door": "resolver",
-          "calls": [
-            "resolve"
-          ]
-        }
-      }
-    }
-  },
   "signature": {
     "authorKey": "6693946bd5c56196960959c4b9665fad5094374bcb85ddb282f8bf762c835263",
-    "value": "5fdde7a7072271404ceb48009de5b710024d7ddd2116cc4dec64ad0b9cee79847b3021641ae2d6bee539d462d9561d04cda9e1c680efd6edb831c4fde7214c0f"
+    "value": "64891a2d5825a95c1b482d62ad989360340db05603f30a19638da17a108a7999bd425f8ca4ec45a49afc37f2882c5be7c50adfb95f58925dce8c3024cb23040a"
+  },
+  "screen": {
+    "label": "PelisYSeries",
+    "labelEn": "PelisYSeries",
+    "icon": "movie",
+    "menuOpens": "screen",
+    "opensFrom": [
+      "menu",
+      "settings"
+    ],
+    "settingsButton": {
+      "label": "Abrir PelisYSeries",
+      "labelEn": "Open PelisYSeries"
+    },
+    "settingsIn": "screen"
+  },
+  "consumes": {
+    "resolver": {
+      "repo": "xuper-plugin/kino-plugin-kino-resolver",
+      "door": "resolver",
+      "calls": [
+        "resolve"
+      ]
+    }
   }
 }

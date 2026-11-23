@@ -1583,3 +1583,10 @@ test("ranking end to end: a server whose copies fail sinks, and the next play as
   const asked = doorCalls.filter((c) => c.method === "resolve").map((c) => c.url);
   assert.match(asked[0], /morencius/, "the server that loaded is tried first now");
 });
+
+test("screen: the own browse screen with the four section tabs, no install gate (PelisYSeries also plays without the resolver)", async () => {
+  const view = JSON.stringify(await plugin.screen({ device: "phone", installed: {} }));
+  for (const tab of ["Series", "Anime", "Películas", "Géneros"]) assert.ok(view.includes(tab), tab);
+  assert.ok(!/installPlugin|Instalar Kino Resolver/.test(view), "no install gate");
+  assert.equal(typeof plugin.screenEvent, "function");
+});
