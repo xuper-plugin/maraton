@@ -1,4 +1,4 @@
-// std 1.6.0 — the standard screen of the xuper-plugin site plugins (golden copy: C:\dev\xuper-plugin\_standard\src\std).
+// std 1.6.1 — the standard screen of the xuper-plugin site plugins (golden copy: C:\dev\xuper-plugin\_standard\src\std).
 // Copy this folder as it is into a plugin's src/std/; a change goes to the golden copy first, then to every plugin.
 //
 // It paints at once from what is kept, then fills each tab as the source answers:
@@ -146,7 +146,7 @@ export function makeStandardScreen({ kino, name, nameEn, logo = null, logoAspect
     const data = enrich(dataOf(tab));
     const loaded = TAB_IDS.map((t) => memo.get(t)).filter(Boolean).map((m) => m.data);
     const pending = Array.isArray(st.pending) && st.pending.length > 0;
-    const searching = !!(c.route && c.route.name === "search");
+    const searching = st.searching === true;
     return browseView(cfg, { tab, data, recent: meta.dress(recentOf(readKeys(), loaded)), pending, failed: !!(st.failed && st.failed[tab]), searching, device });
   }
 
@@ -227,18 +227,17 @@ export function makeStandardScreen({ kino, name, nameEn, logo = null, logoAspect
       return { state: { pending: rest, failed } };
     },
     // The words go to Kino's own search, with this plugin as the source; the bar is put back as it was, locally.
-    // The search button's own event (after its local ops): the "search" route, so Kino's Back pops it instead of closing the
-    // screen. The local ops are dropped with it: the route's tree draws the box, and after a pop the main tree's defaults hold.
-    searchRoute({ route }) { return route && route.name === "search" ? null : { route: { push: "search" }, state: { ui: null } }; },
-    closeSearch({ route }) { return route && route.name === "search" ? { route: { pop: true }, state: { ui: null } } : { state: { ui: null } }; },
-    search({ value, state, device, route }) {
+    // The search button's own event (after its local ops): while searching, the tree declares onBack, so Back closes the box.
+    searchOpened() { return { state: { searching: true } }; },
+    // The box was closed (its arrow, or Back through onBack, already ran the local ops): the flag and the ops go, so the next
+    // tree declares no onBack and draws the bar's defaults.
+    searchClosed() { return { state: { searching: false, ui: null } }; },
+    search({ value, state, device }) {
       const typed = value && typeof value === "object" ? value.q : value;
       const raw = typed != null && String(typed).trim() !== "" ? typed : state.inputs && state.inputs.q;
       const q = String(raw == null ? "" : raw).trim().slice(0, Q_MAX);
       if (!q) return null;
-      return route && route.name === "search"
-        ? { go: { search: { q } }, route: { pop: true }, state: { ui: null } }
-        : { go: { search: { q } }, ui: searchClosedOps(device === "tv" && TAB_IDS.length > 1) };
+      return { go: { search: { q } }, ui: searchClosedOps(device === "tv" && TAB_IDS.length > 1), state: { searching: false, ui: null } };
     },
     openSettings() { return { route: { push: "settings" }, state: { fromBrowse: true } }; },
     back({ state, route }) {

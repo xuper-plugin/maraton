@@ -74,11 +74,11 @@ test("search opens and closes in the bar at once (local ui), and tells the plugi
   const tree = await make().screen({ state: {}, device: "phone", installed });
   const all = nodes(tree.appBar);
   const open = all.find((n) => n.key === "searchButton").onPressed;
-  assert.equal(open.event, "searchRoute", "then the plugin pushes the search route, so Back pops it");
+  assert.equal(open.event, "searchOpened", "then the plugin notes it, so the tree declares onBack");
   assert.deepEqual(ops(open).sort(), ["focus:q", "hide:brand", "hide:searchButton", "hide:settingsButton", "show:closeSearch", "show:q"].sort());
   const close = all.find((n) => n.key === "closeSearch");
   assert.equal(close.icon, "arrow_back");
-  assert.equal(close.onPressed.event, "closeSearch");
+  assert.equal(close.onPressed.event, "searchClosed");
   assert.deepEqual(ops(close.onPressed).sort(), ["clear:q", "hide:closeSearch", "hide:q", "show:brand", "show:searchButton", "show:settingsButton"].sort());
   const q = all.find((n) => n.key === "q");
   assert.equal(q.type, "TextField");
@@ -300,13 +300,13 @@ test("Kino drops nothing of any tree or answer: phone and TV, Spanish and Englis
         browse: await s.screen({ state, device, installed }),
         settings: await s.screen({ state, route: { name: "settings" }, device, installed }),
         gate: await s.screen({ state: {}, device, installed: {} }),
-        search: await s.screen({ state, route: { name: "search" }, device, installed }),
+        searching: await s.screen({ state: { ...state, searching: true }, device, installed }),
       };
       for (const [name, tree] of Object.entries(trees)) {
         const r = kit.checkScreenTree(fold(tree), lang, undefined, { apiVersion: 30, settings: SETTINGS });
         assert.deepEqual(r.dropped, [], `${device}/${lang}/${name}`);
       }
-      for (const [name, ev] of [["search", { name: "search", value: "dune", state: {}, device }], ["openSettings", { name: "openSettings", state: {} }], ["tab", { name: "tab", value: "b", state }], ["searchRoute", { name: "searchRoute", state, route: { name: "main" } }], ["closeSearch", { name: "closeSearch", state, route: { name: "search" } }], ["searchFromRoute", { name: "search", value: "dune", state, route: { name: "search" } }]]) {
+      for (const [name, ev] of [["search", { name: "search", value: "dune", state: {}, device }], ["openSettings", { name: "openSettings", state: {} }], ["tab", { name: "tab", value: "b", state }], ["searchOpened", { name: "searchOpened", state }], ["searchClosed", { name: "searchClosed", state: { ...state, searching: true } }]]) {
         const r = kit.checkScreenAnswer(fold(await s.screenEvent(ev)), lang, {});
         assert.deepEqual(r.dropped, [], `${device}/${lang}/answer ${name}`);
       }
@@ -332,25 +332,18 @@ test("a row's English title reaches its rail", async () => {
   assert.equal(rail.titleEn, "Recently added");
 });
 
-test("the search route: Back (Kino pops it) leaves the bar as it was; the tree draws the box itself", async () => {
+test("while searching, Back closes the search (Scaffold onBack), then the next Back leaves the screen", async () => {
   const s = make();
-  // The search button's event pushes the route and drops the local ui ops, so after a pop the main tree's defaults hold.
-  assert.deepEqual(await s.screenEvent({ name: "searchRoute", state: {}, route: { name: "main" } }), { route: { push: "search" }, state: { ui: null } });
-  const bar = nodes((await s.screen({ state: {}, route: { name: "search" }, device: "phone", installed })).appBar);
-  const byKey = (k) => bar.find((n) => n.key === k);
-  assert.notEqual(byKey("q").hidden, true, "the box shows");
-  assert.notEqual(byKey("closeSearch").hidden, true, "its arrow shows");
-  assert.equal(byKey("brand").hidden, true);
-  assert.equal(byKey("searchButton").hidden, true);
-  assert.equal(byKey("q").autofocus, true);
-  // The arrow on the search route pops it; on the main route (tapped before the route arrived) it only drops the ops.
-  assert.deepEqual(await s.screenEvent({ name: "closeSearch", state: {}, route: { name: "search" } }), { route: { pop: true }, state: { ui: null } });
-  assert.deepEqual(await s.screenEvent({ name: "closeSearch", state: {}, route: { name: "main" } }), { state: { ui: null } });
-  // Searching from the route goes to Kino's search and leaves the route.
-  const done = await s.screenEvent({ name: "search", value: "dune", state: {}, route: { name: "search" } });
+  assert.deepEqual(await s.screenEvent({ name: "searchOpened", state: {} }), { state: { searching: true } });
+  const open = await s.screen({ state: { searching: true }, device: "phone", installed });
+  assert.equal(open.onBack.event, "searchClosed");
+  assert.deepEqual(ops(open.onBack).sort(), ["clear:q", "hide:closeSearch", "hide:q", "show:brand", "show:searchButton", "show:settingsButton"].sort());
+  assert.equal((await s.screen({ state: {}, device: "phone", installed })).onBack, undefined, "not searching: Back leaves");
+  // The answer drops the flag and the local ops: the next tree declares no onBack and draws the bar's defaults.
+  assert.deepEqual(await s.screenEvent({ name: "searchClosed", state: { searching: true } }), { state: { searching: false, ui: null } });
+  const done = await s.screenEvent({ name: "search", value: "dune", state: { searching: true } });
   assert.deepEqual(done.go, { search: { q: "dune" } });
-  assert.deepEqual(done.route, { pop: true });
-  assert.deepEqual(done.state, { ui: null });
+  assert.deepEqual(done.state, { searching: false, ui: null });
 });
 
 test("a tab load Kino cut short (its call never answered) is failed with Retry on the next tick, so the timer goes on", async () => {

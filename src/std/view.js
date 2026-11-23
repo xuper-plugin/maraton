@@ -82,7 +82,7 @@ const rail = (r, key, words, headers) => ({
 /**
  * The browse page. `data`: `{ slides, rails }` of the active tab, or null while it is not in. `recent`: the cards of the played
  * titles. `pending`: some tab is still being fetched (the timer polls only then). `failed`: the active tab could not load.
- * `searching`: the "search" route, where the bar is the search box.
+ * `searching`: the search box is open (Back then closes it: the Scaffold declares `onBack`).
  */
 export function browseView(cfg, { tab, data, recent, pending, failed, searching = false, device = "phone" }) {
   const tv = device === "tv";
@@ -106,26 +106,27 @@ export function browseView(cfg, { tab, data, recent, pending, failed, searching 
 
   // The search box lives in the bar from the start, hidden: opening and closing it are local `ui` operations, drawn at once
   // with no wait (a plugin call waits in line behind the tab loads, which made the bar slow to react). The same press also
-  // tells the plugin, which pushes the "search" route: Kino's Back then pops it (back to this bar) instead of closing the
-  // screen. On that route (`searching`) the tree itself draws the box, the local ops having been dropped with the push.
+  // tells the plugin (`searching`), and while it is open the Scaffold declares `onBack`: the system Back closes the box (its
+  // ops at once) instead of the screen, and the next Back, with no `onBack` declared, leaves.
   const tabsInBar = tv && withTabs; // on a TV the tabs sit in the bar beside the brand (one D-pad strip); elsewhere under it
   const appBar = bar({
     leading: iconButton("close", "close", "close", { go: { close: true } }),
     title: { type: "Row", key: "titleRow", gap: tabsInBar ? 24 : 8, crossAxisAlignment: "center", children: [
-      { ...iconButton("closeSearch", "arrow_back", "back", { ui: searchClosedOps(tabsInBar), event: "closeSearch" }), hidden: !searching },
-      { ...brand(cfg), hidden: searching },
-      ...(tabsInBar ? [{ ...tabBar(tabs, active), hidden: searching }] : []),
-      { type: "TextField", key: "q", hidden: !searching, ...(searching ? { autofocus: true } : {}), flex: 1, kind: "search", maxLength: 200,
+      { ...iconButton("closeSearch", "arrow_back", "back", { ui: searchClosedOps(tabsInBar), event: "searchClosed" }), hidden: true },
+      brand(cfg),
+      ...(tabsInBar ? [tabBar(tabs, active)] : []),
+      { type: "TextField", key: "q", hidden: true, flex: 1, kind: "search", maxLength: 200,
         ...twin("searchHint", "hintText", { name: [cfg.name, cfg.nameEn || cfg.name] }),
         onSubmitted: "search", trailingIcon: "search", ...twin("search", "trailingLabel"), onTrailingTap: "search" },
     ] },
     actions: [
-      { ...iconButton("searchButton", "search", "search", { ui: searchOpenOps(tabsInBar), event: "searchRoute" }), hidden: searching },
-      { ...iconButton("settingsButton", "settings", "settings", "openSettings"), hidden: searching },
+      iconButton("searchButton", "search", "search", { ui: searchOpenOps(tabsInBar), event: "searchOpened" }),
+      iconButton("settingsButton", "settings", "settings", "openSettings"),
     ],
   });
   return {
     type: "Scaffold",
+    ...(searching ? { onBack: { ui: searchClosedOps(tabsInBar), event: "searchClosed" } } : {}),
     appBar,
     body: { type: "Column", key: "page", children: [
       ...(withTabs && !tv ? [{ type: "Column", key: "tabsRow", padding: { compact: 0, expanded: 24 }, children: [tabBar(tabs, active)] }] : []),

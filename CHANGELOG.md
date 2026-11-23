@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.2
+
+- Back closes the search box (the screen declares onBack while searching) instead of the whole screen (std 1.6.1)
+
 ## 0.9.1
 
 - Back closes the search box instead of the screen; a tab Kino cut short offers Retry; a row's English title; a hero from TMDB when needed (std 1.6.0)
