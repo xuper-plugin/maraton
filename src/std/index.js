@@ -1,12 +1,13 @@
-// std 1.6.1 — the standard screen of the xuper-plugin site plugins (golden copy: C:\dev\xuper-plugin\_standard\src\std).
+// std 1.6.2 — the standard screen of the xuper-plugin site plugins (golden copy: C:\dev\xuper-plugin\_standard\src\std).
 // Copy this folder as it is into a plugin's src/std/; a change goes to the golden copy first, then to every plugin.
 //
 // It paints at once from what is kept, then fills each tab as the source answers:
 // - `open` reads no network: the active tab is drawn from its kept copy (skeletons if none) and the tabs that still need their
 //   rows become `pending` in the state.
-// - A timer (`every`, only while something is pending) loads ONE tab per tick, the active one first. Each tab is kept
-//   (kino.storage) the moment it arrives, so a slow source never holds the others back.
-// - Tabs other than the active one are prefetched except on a TV (a weak box pays for every row it builds).
+// - A timer (`every`, only while something is pending) loads ONE tab per tick. Each tab is kept (kino.storage) the moment it
+//   arrives, so a slow source never holds the others back.
+// - Only the tab on show loads; another loads when it is selected (no prefetch: every plugin call waits in line with the
+//   screen's events, so a prefetch made a tap wait seconds).
 // The bar's search hands the words to Kino's own search (this plugin as the source); a card or a slide opens Kino's own title
 // page. Ajustes is a page with Kino's own form of the plugin's settings and the donation.
 import { tabOf, recentOf, playedKey, slideText, MAX_SLIDES } from "./model.js";
@@ -188,7 +189,9 @@ export function makeStandardScreen({ kino, name, nameEn, logo = null, logoAspect
     },
     retry({ state }) {
       const tab = TAB_IDS.includes(state.tab) ? state.tab : TAB_IDS[0];
-      return { state: { failed: null, pending: [tab] } };
+      // The failed tab first; what was already queued (another tab's TMDB tick) stays.
+      const queued = Array.isArray(state.pending) ? state.pending.filter((t) => t !== tab) : [];
+      return { state: { failed: null, pending: [tab, ...queued] } };
     },
     async tick({ state }) {
       const pending = Array.isArray(state.pending) ? state.pending : [];

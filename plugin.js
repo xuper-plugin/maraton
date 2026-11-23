@@ -567,7 +567,8 @@ function makeStandardScreen({ kino: kino2, name, nameEn, logo = null, logoAspect
     },
     retry({ state }) {
       const tab = TAB_IDS.includes(state.tab) ? state.tab : TAB_IDS[0];
-      return { state: { failed: null, pending: [tab] } };
+      const queued = Array.isArray(state.pending) ? state.pending.filter((t) => t !== tab) : [];
+      return { state: { failed: null, pending: [tab, ...queued] } };
     },
     async tick({ state }) {
       const pending = Array.isArray(state.pending) ? state.pending : [];

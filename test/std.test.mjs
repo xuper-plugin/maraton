@@ -393,3 +393,10 @@ test("with many tabs the kept copies share the room: each one stays small", asyn
   const kept = k.storage.get("browse1:t0");
   assert.ok(kept && kept.length <= 12 * 1024, "kept " + (kept && kept.length));
 });
+
+test("Retry loads the failed tab first and keeps the work already queued (other tabs' TMDB ticks)", async () => {
+  const s = make({ tabs: [{ id: "a", label: "A", labelEn: "A" }, { id: "b", label: "B", labelEn: "B" }] });
+  const r = await s.screenEvent({ name: "retry", state: { tab: "a", failed: { a: true }, pending: ["meta:b", "a"] } });
+  assert.deepEqual(r.state.pending, ["a", "meta:b"]);
+  assert.equal(r.state.failed, null);
+});
