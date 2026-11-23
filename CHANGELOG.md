@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.0
+
+- The standard xuper-plugin screen (src/std 1.5.0): one bar with the logo and the name, Buscar (the words go to Kino's own search) and Ajustes (Kino's own form of the settings, and the donation); a hero of slides; cards and slides open Kino's own title page. The plugin's own search page is gone. Still plays without Kino Resolver: no install gate. apiVersion 30 (Kino 0.9.91).
+
 ## 0.8.0
 
 - **Like the other xuper-plugin sources now (apiVersion 20)**: the shared resolver is declared under a top-level `consumes` (no `enhancements`), and PelisYSeries has **its own browse screen** in the menu (Series, Anime, Películas, Géneros: the same rows as its section, with search). No install gate: it still plays every server without the resolver, through the hidden browser. Needs Kino 0.9.81 or later.

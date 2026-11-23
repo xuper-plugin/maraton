@@ -5,7 +5,8 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "check:built": "node scripts/build.mjs --check",
-    "test": "node --test test/plugin.test.mjs test/dropFetches.test.mjs"
+    "test": "node --test test/plugin.test.mjs test/dropFetches.test.mjs test/std.test.mjs",
+    "validate": "node scripts/build.mjs && node sdk/validate.mjs . --repo xuper-plugin/maraton"
   },
   "devDependencies": {
     "esbuild": "^0.21.0"

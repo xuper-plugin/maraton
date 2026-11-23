@@ -1,8 +1,8 @@
 {
   "id": "maraton",
   "name": "PelisYSeries",
-  "version": "0.8.0",
-  "apiVersion": 20,
+  "version": "0.9.0",
+  "apiVersion": 30,
   "entry": "plugin.js",
   "description": "Series, anime y películas en latino, castellano o subtitulado. El video se busca en tu propio aparato, sin servidores intermedios.",
   "author": "Equipo PelisYSeries",
@@ -172,7 +172,7 @@
   ],
   "signature": {
     "authorKey": "6693946bd5c56196960959c4b9665fad5094374bcb85ddb282f8bf762c835263",
-    "value": "64891a2d5825a95c1b482d62ad989360340db05603f30a19638da17a108a7999bd425f8ca4ec45a49afc37f2882c5be7c50adfb95f58925dce8c3024cb23040a"
+    "value": "30c4d3da5e4a3e93a6773180019c3564d6e7b22a40e2e9992cb756f00d177233a8ca4d0094dee460db961565d3d5cd1d5d8d19d3fa867ba7433d54ccb76d7a0f"
   },
   "screen": {
     "label": "PelisYSeries",

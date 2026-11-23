@@ -6,7 +6,8 @@
 // Refs:  "<site>|<path>"  e.g. "sk|/serie/dark" (a series), "sk|/serie/dark/temporada/1/capitulo/1" (an episode).
 // Rows:  "row|<site>|<kind>" with the catalog page number as the cursor.
 
-import { makeBrowse } from "./browse/index.js";
+import { makeStandardScreen } from "./std/index.js";
+import { LOGO, LOGO_ASPECT } from "./logo.js";
 
 
 // Kino waits for every request a call left running before it delivers the call's answer (quickjs-kt joins the pending async work), so a Home that
@@ -2668,36 +2669,27 @@ export async function validateSettings(values) {
   return null;
 }
 
-// ---- own browse screen ----
-// PelisYSeries plays without the shared resolver too (a player it cannot read inline opens in the hidden browser), so its screen is
-// the browse screen from the start: no install gate, unlike the plugins that only play through the resolver.
+// ---- the screen: the standard xuper-plugin screen (src/std) ----
 
-/** The tabs of the own browse screen: the same ones section() serves. */
-const SCREEN_TABS = [
-  { id: "series", es: "Series", en: "Series" },
-  { id: "anime", es: "Anime", en: "Anime" },
-  { id: "peliculas", es: "Películas", en: "Movies" },
-  { id: "generos", es: "Géneros", en: "Genres" },
-];
-
-let browseInstance = null;
-const browseScreen = () => (browseInstance ??= makeBrowse({
-  kino,
-  brand: "PelisYSeries",
-  tabs: SCREEN_TABS,
+// PelisYSeries plays without the shared resolver too (a player it cannot read inline opens in the hidden browser), so its screen is the browse screen from the start: no install gate.
+let std = null;
+const standard = () => (std ??= makeStandardScreen({
+  kino, name: "PelisYSeries", logo: LOGO, logoAspect: LOGO_ASPECT, needsResolver: false, hasSettings: true,
+  tabs: [
+    { id: "series", label: "Series", labelEn: "Series" },
+    { id: "anime", label: "Anime", labelEn: "Anime" },
+    { id: "peliculas", label: "Películas", labelEn: "Movies" },
+    { id: "generos", label: "Géneros", labelEn: "Genres" },
+  ],
   loadTab: async (tabId) => ({ rows: (await section({ tab: tabId })).rows }),
-  searchTitles: (q) => search({ q }),
-  canPlay: false,
 }));
 
-/** `screen(ctx)`: the rich browse screen (its own section rows, a tab each). */
 export async function screen(ctx) {
   await null;
-  return browseScreen().view(ctx && typeof ctx === "object" ? ctx : {});
+  return standard().screen(ctx && typeof ctx === "object" ? ctx : {});
 }
 
-/** `screenEvent(ev)`: the screen's events (its timers load a tab or a search, one per call). */
 export async function screenEvent(ev) {
   await null;
-  return browseScreen().event(ev && typeof ev === "object" ? ev : {});
+  return standard().screenEvent(ev && typeof ev === "object" ? ev : {});
 }
