@@ -1,7 +1,7 @@
 {
   "id": "maraton",
   "name": "PelisYSeries",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "apiVersion": 30,
   "entry": "plugin.js",
   "description": "Series, anime y películas en latino, castellano o subtitulado. El video se busca en tu propio aparato, sin servidores intermedios.",
@@ -172,7 +172,7 @@
   ],
   "signature": {
     "authorKey": "6693946bd5c56196960959c4b9665fad5094374bcb85ddb282f8bf762c835263",
-    "value": "e5aa989e361737200794011590ea0412ffc395dba6777c75e26f4946ec53cedb24b28f32660c34510d8bbad9eab2e6cff0131a711864d419aa5e05890c78a406"
+    "value": "642dfb30100d2531a96c20d1398e1699d02b44bc1606a57a111beefaddee91e9d32e0f4919078011c88126216748058107b1b1c75891956a772c7a8a66ce3807"
   },
   "screen": {
     "label": "PelisYSeries",
@@ -196,6 +196,33 @@
       "calls": [
         "resolve"
       ]
+    }
+  },
+  "provides": {
+    "catalog": {
+      "summary": "Titles this plugin finds, for the author's other plugins",
+      "calls": {
+        "search": {
+          "in": {
+            "q": "string",
+            "type": "string?"
+          },
+          "out": "Item[]"
+        }
+      },
+      "types": {
+        "Item": {
+          "id": "string",
+          "ref": "string",
+          "title": "string",
+          "kind": "string",
+          "poster": "string?",
+          "backdrop": "string?",
+          "year": "string?",
+          "overview": "string?",
+          "tmdb": "number?"
+        }
+      }
     }
   }
 }

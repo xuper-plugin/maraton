@@ -400,3 +400,118 @@ test("Retry loads the failed tab first and keeps the work already queued (other 
   assert.deepEqual(r.state.pending, ["a", "meta:b"]);
   assert.equal(r.state.failed, null);
 });
+
+// ---- std 1.7.0: the catalog door every plugin offers, and the search shown here (Da-Video) ----
+import { catalogItems, CATALOG_PROVIDES } from "../src/std/catalog.js";
+
+test("catalogItems: a plugin's search results as the catalog door's Item, at most 40", () => {
+  const found = Array.from({ length: 45 }, (_, i) => item(i + 1, { year: 2001, ids: { tmdb: 77 } }));
+  const out = catalogItems(found);
+  assert.equal(out.length, 40);
+  assert.deepEqual(out[0], { id: "i1", ref: "m:1", title: "Title 1", kind: "movie", poster: "https://img/p1.jpg", backdrop: "https://img/b1.jpg", year: "2001", overview: "Overview 1", tmdb: 77 });
+  assert.deepEqual(catalogItems([{ id: "x", ref: "r", title: "T", kind: "series" }]), [{ id: "x", ref: "r", title: "T", kind: "series" }]);
+  assert.deepEqual(catalogItems([{ id: "", ref: "r", title: "T", kind: "movie" }, null, { id: "y" }]), []);
+  assert.deepEqual(Object.keys(CATALOG_PROVIDES.catalog.calls), ["search"]);
+});
+
+/** A Da-Video-like screen: its search is shown here, from several plugins answering one after another. */
+function hereScreen(answers) {
+  const asked = [];
+  const s = make({
+    needsResolver: false,
+    searchHere: {
+      sources: async () => [{ repo: "x/a", name: "A" }, { repo: "x/b", name: "B" }, { repo: "x/c", name: "C" }, { repo: "x/d", name: "D" }],
+      searchIn: async (q, repos) => { asked.push([q, repos]); return repos.map((repo) => answers[repo]); },
+    },
+  });
+  return { s, asked };
+}
+
+test("searchHere: the words open the results page here, not Kino's search", async () => {
+  const { s } = hereScreen({});
+  const r = await s.screenEvent({ name: "search", value: "dune", state: { searching: true } });
+  assert.equal(r.go, undefined);
+  assert.deepEqual(r.route, { push: "results" });
+  assert.equal(r.state.rq, "dune");
+  assert.deepEqual(r.state.rpending, ["x/a", "x/b", "x/c", "x/d"]);
+  assert.equal(r.state.searching, false);
+});
+
+test("searchHere: plugins answer a few per tick; each answer is a rail whose cards open in that plugin", async () => {
+  const { s, asked } = hereScreen({
+    "x/a": { repo: "x/a", name: "A", ok: true, items: [{ id: "1", ref: "a:1", title: "Dune", kind: "movie", poster: "https://p/1.jpg" }] },
+    "x/b": { repo: "x/b", name: "B", ok: false },
+    "x/c": { repo: "x/c", name: "C", ok: true, items: [{ id: "1", ref: "c:1", title: "Dune", kind: "movie" }] },
+    "x/d": { repo: "x/d", name: "D", ok: true, items: [] },
+  });
+  let state = { ...(await s.screenEvent({ name: "search", value: "dune", state: {} })).state };
+  const route = { name: "results" };
+  const first = await s.screenEvent({ name: "tick", state, route });
+  state = { ...state, ...first.state };
+  assert.deepEqual(asked[0], ["dune", ["x/a", "x/b", "x/c"]]);
+  assert.deepEqual(state.rpending, ["x/d"]);
+  let tree = await s.screen({ state, route, device: "phone", installed });
+  let all = nodes(tree);
+  const rails = all.filter((n) => n.type === "titleRail");
+  assert.deepEqual(rails.map((r) => r.titleEn), ["In A", "In C"]);
+  assert.equal(rails[0].items[0].origin, "x/a");
+  assert.notEqual(rails[0].items[0].id, rails[1].items[0].id, "ids kept apart between plugins");
+  assert.ok(all.some((n) => n.type === "Text" && /B/.test(n.textEn || "")), "a quiet line for the plugin that did not answer");
+  assert.ok(all.some((n) => n.type === "Skeleton"), "skeletons while D still asks");
+  assert.ok(tree.every, "the timer runs while plugins are pending");
+  state = { ...state, ...(await s.screenEvent({ name: "tick", state, route })).state };
+  tree = await s.screen({ state, route, device: "phone", installed });
+  assert.equal(tree.every, undefined, "no timer once every plugin answered");
+  assert.ok(!nodes(tree).some((n) => n.type === "Skeleton"));
+});
+
+test("searchHere: nothing found anywhere says so", async () => {
+  const { s } = hereScreen({ "x/a": { repo: "x/a", name: "A", ok: true, items: [] }, "x/b": { repo: "x/b", name: "B", ok: true, items: [] },
+    "x/c": { repo: "x/c", name: "C", ok: true, items: [] }, "x/d": { repo: "x/d", name: "D", ok: true, items: [] } });
+  let state = { ...(await s.screenEvent({ name: "search", value: "zzz", state: {} })).state };
+  const route = { name: "results" };
+  for (let i = 0; i < 3 && state.rpending.length; i++) state = { ...state, ...(await s.screenEvent({ name: "tick", state, route })).state };
+  const all = nodes(await s.screen({ state, route, device: "phone", installed }));
+  assert.ok(all.some((n) => n.key === "noResults"));
+});
+
+test("page: a plugin's own body under the standard bar (Da-Video's list of plugins), its own events, no tab loading", async () => {
+  let opened = 0;
+  const s = make({
+    needsResolver: false,
+    page: {
+      open: async () => { opened++; return { list: ["a", "b"] }; },
+      view: ({ state }) => (state.list || []).map((x) => ({ type: "Text", key: "row-" + x, text: x, textEn: x })),
+      events: { pick: async ({ arg }) => ({ go: { plugin: { repo: "x/" + arg } } }) },
+    },
+  });
+  const o = await s.screenEvent({ name: "open", state: {}, device: "phone", route: { name: "main" } });
+  assert.equal(opened, 1);
+  assert.deepEqual(o.state.list, ["a", "b"]);
+  assert.deepEqual(o.state.pending, []);
+  const tree = await s.screen({ state: o.state, device: "phone", installed });
+  const all = nodes(tree);
+  assert.ok(all.some((n) => n.key === "row-a") && all.some((n) => n.key === "row-b"));
+  assert.ok(!all.some((n) => n.type === "TabBar" || n.type === "Skeleton"));
+  assert.deepEqual(tree.appBar.actions.map((a) => a.icon), ["search", "settings"]);
+  assert.equal(tree.every, undefined);
+  assert.deepEqual(await s.screenEvent({ name: "pick", arg: "hdfull", state: o.state }), { go: { plugin: { repo: "x/hdfull" } } });
+  assert.equal(await s.screenEvent({ name: "unknownThing", state: {} }), null);
+});
+
+test("page.every: the page's own timer, only while it asks for one", async () => {
+  const s = make({ needsResolver: false, page: { view: () => [], every: ({ state }) => (state.busy ? { ms: 3000, event: "refresh" } : null), events: { refresh: async () => ({ state: { busy: false } }) } } });
+  assert.deepEqual((await s.screen({ state: { busy: true }, device: "phone", installed })).every, { ms: 3000, event: "refresh" });
+  assert.equal((await s.screen({ state: {}, device: "phone", installed })).every, undefined);
+});
+
+test("catalogDoor: the plugin's own search with Kino's query shape, its answer cut to the door's Item", async () => {
+  const { catalogDoor } = await import("../src/std/catalog.js");
+  const asked = [];
+  const door = catalogDoor(async (q) => { asked.push(q); return { items: [item(1)], cursor: "next" }; });
+  assert.deepEqual(await door({ q: "  dune ", type: "series" }), [{ id: "i1", ref: "m:1", title: "Title 1", kind: "movie", poster: "https://img/p1.jpg", backdrop: "https://img/b1.jpg", overview: "Overview 1" }]);
+  assert.equal(asked[0].q, "dune");
+  assert.equal(asked[0].type, "series");
+  assert.deepEqual(await door({ q: "" }), []);
+  assert.equal(asked.length, 1);
+});

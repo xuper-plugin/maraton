@@ -2693,3 +2693,8 @@ export async function screenEvent(ev) {
   await null;
   return standard().screenEvent(ev && typeof ev === "object" ? ev : {});
 }
+
+// std 1.7.0: the catalog door -- the author's other plugins (Da-Video) find titles here through Kino, and Kino opens and
+// plays what they find in this plugin, with its own resolve.
+import { catalogDoor } from "./std/catalog.js";
+export const proto_catalog_search = catalogDoor(search);

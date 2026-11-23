@@ -1,4 +1,4 @@
-// std 1.6.2 — the standard screen of the xuper-plugin site plugins (golden copy: C:\dev\xuper-plugin\_standard\src\std).
+// std 1.7.0 — the standard screen of the xuper-plugin site plugins (golden copy: C:\dev\xuper-plugin\_standard\src\std).
 // Copy this folder as it is into a plugin's src/std/; a change goes to the golden copy first, then to every plugin.
 //
 // It paints at once from what is kept, then fills each tab as the source answers:
@@ -11,7 +11,7 @@
 // The bar's search hands the words to Kino's own search (this plugin as the source); a card or a slide opens Kino's own title
 // page. Ajustes is a page with Kino's own form of the plugin's settings and the donation.
 import { tabOf, recentOf, playedKey, slideText, MAX_SLIDES } from "./model.js";
-import { browseView, settingsView, gateView, searchClosedOps, RESOLVER_REPO } from "./view.js";
+import { browseView, settingsView, gateView, resultsView, searchClosedOps, RESOLVER_REPO } from "./view.js";
 import { makeMetaCache } from "./metaCache.js";
 
 const TAB_KEY = "browseTab";
@@ -43,11 +43,16 @@ const DEFAULT_TABS = [{ id: "inicio", label: "Inicio", labelEn: "Home" }];
  * `needsResolver`: the plugin cannot play without kino-resolver installed (the screen is then its install gate while it is
  * missing). `hasSettings`: the manifest declares `settings`. `tabs`: `[{ id, label, labelEn }]`. `loadTab(tabId)` → `{ rows }`.
  * `homeKey`: the kino.storage key where the plugin's home() keeps `{ rows }`, to seed the first tab (optional).
+ * `page` (std 1.7.0, Da-Video): `{ open: async (ev) => statePatch, view: (ctx) => nodes, events: { name: async (ev) => answer } }`:
+ * the plugin's own body under the standard bar instead of tabs of title rails (no tab loading); `every?: (ctx) => { ms, event } | null`
+ * runs a timer of its own while it answers one.
+ * `searchHere` (std 1.7.0, Da-Video): `{ sources: async () => [{ repo, name }], searchIn: async (q, repos) => [{ repo, name, ok,
+ * items }] }`: the bar's search opens a results page here (one rail per source, as each answers) instead of Kino's search.
  * `titleOf(card)` / `typeOf(card)`: the title and type TMDB is asked for (optional). `tmdbPictures`: TMDB's poster on the cards
  * and its backdrop on the slides, for a site whose own pictures do not load. `imageHeaders`: `{ Referer, "User-Agent" }` sent
  * with the hero's and the rails' pictures (Kino 0.9.83+), for a site whose images need them.
  */
-export function makeStandardScreen({ kino, name, nameEn, logo = null, logoAspect = "1:1", needsResolver, hasSettings, tabs, loadTab, homeKey = null, titleOf, typeOf, tmdbPictures = false, imageHeaders = null }) {
+export function makeStandardScreen({ kino, name, nameEn, logo = null, logoAspect = "1:1", needsResolver, hasSettings, tabs, loadTab, homeKey = null, titleOf, typeOf, tmdbPictures = false, imageHeaders = null, searchHere = null, page = null }) {
   const cfg = { name, nameEn, logo, logoAspect, imageHeaders, hasSettings: !!hasSettings, tabs: Array.isArray(tabs) && tabs.length > 0 ? tabs : DEFAULT_TABS };
   const TAB_IDS = cfg.tabs.map((t) => t.id);
   const meta = makeMetaCache({ kino, titleOf, typeOf, tmdbPictures });
@@ -79,6 +84,16 @@ export function makeStandardScreen({ kino, name, nameEn, logo = null, logoAspect
     };
   };
   const metaTicks = new Map(); // tab -> TMDB ticks run in this sandbox
+  // searchHere: what each source answered for the search on show (repo -> { ok, items }), kept in memory, never in the state.
+  const found = new Map();
+  /** Up to this many sources asked per tick of the results page (Kino opens at most 2 plugin runtimes at a time). */
+  const SOURCES_PER_TICK = 3;
+  /** A source's answer as the results page draws it: each item tagged with its origin, its id kept apart from other sources'. */
+  const asFound = (a, index) => ({
+    ok: !!(a && a.ok),
+    items: a && a.ok && Array.isArray(a.items) ? a.items.filter((x) => x && x.id && x.ref && x.title).slice(0, 40)
+      .map((x) => ({ ...x, id: ("p" + index + "~" + x.id).slice(0, 128), origin: a.repo })) : [],
+  });
   const memo = new Map(); // tab -> { data, whole: loaded in this sandbox }
   const log = (...a) => { try { kino.log("[std]", ...a); } catch (_) { /* no log */ } };
   const get = (k) => { try { return kino.storage.get(k); } catch (_) { return null; } };
@@ -142,12 +157,23 @@ export function makeStandardScreen({ kino, name, nameEn, logo = null, logoAspect
     const device = c.device || "phone";
     if (needsResolver && !(c.installed && c.installed[RESOLVER_REPO])) return gateView(cfg, device);
     if (c.route && c.route.name === "settings") return settingsView(cfg, device);
+    if (searchHere && c.route && c.route.name === "results") {
+      const st0 = c.state && typeof c.state === "object" ? c.state : {};
+      return resultsView(cfg, { q: String(st0.rq || ""), order: Array.isArray(st0.rorder) ? st0.rorder : [], names: st0.rnames || {},
+        pending: Array.isArray(st0.rpending) ? st0.rpending : [], found, device });
+    }
     const st = c.state && typeof c.state === "object" ? c.state : {};
     const tab = TAB_IDS.includes(st.tab) ? st.tab : (tabFromArgs(c.route) ?? stored() ?? TAB_IDS[0]);
     const data = enrich(dataOf(tab));
     const loaded = TAB_IDS.map((t) => memo.get(t)).filter(Boolean).map((m) => m.data);
     const pending = Array.isArray(st.pending) && st.pending.length > 0;
     const searching = st.searching === true;
+    if (page) {
+      const tree = browseView(cfg, { tab: TAB_IDS[0], data: null, recent: [], pending: false, failed: false, searching, device, own: page.view({ ...c, state: st }) || [] });
+      // The page may run its own timer (e.g. while a long job of its own runs): { ms, event }, one of its own events.
+      const every = page.every ? page.every({ ...c, state: st }) : null;
+      return every ? { ...tree, every } : tree;
+    }
     return browseView(cfg, { tab, data, recent: meta.dress(recentOf(readKeys(), loaded)), pending, failed: !!(st.failed && st.failed[tab]), searching, device });
   }
 
@@ -172,7 +198,15 @@ export function makeStandardScreen({ kino, name, nameEn, logo = null, logoAspect
   }
 
   const events = {
-    open({ route, state, device }) {
+    async open(ev) {
+      if (page) {
+        let patch = {};
+        try { patch = (page.open ? await page.open(ev) : {}) || {}; } catch (e) { log("page open", (e && e.code) || "error"); }
+        return { state: { ...patch, tab: TAB_IDS[0], pending: [], failed: null } };
+      }
+      return events.openTabs(ev);
+    },
+    openTabs({ route, state, device }) {
       const tab = tabFromArgs(route) ?? (TAB_IDS.includes(state.tab) ? state.tab : stored() ?? TAB_IDS[0]);
       for (const t of TAB_IDS) dataOf(t); // the kept copies, so a played title is found whichever tab it was on
       return { state: { tab, pending: needed(tab), failed: null } };
@@ -193,7 +227,20 @@ export function makeStandardScreen({ kino, name, nameEn, logo = null, logoAspect
       const queued = Array.isArray(state.pending) ? state.pending.filter((t) => t !== tab) : [];
       return { state: { failed: null, pending: [tab, ...queued] } };
     },
-    async tick({ state }) {
+    async tick({ state, route }) {
+      if (searchHere && route && route.name === "results") {
+        const rp = Array.isArray(state.rpending) ? state.rpending : [];
+        if (rp.length === 0) return null;
+        const batch = rp.slice(0, SOURCES_PER_TICK);
+        const order = Array.isArray(state.rorder) ? state.rorder : [];
+        let answers = [];
+        try { answers = await searchHere.searchIn(String(state.rq || ""), batch); } catch (e) { log("results", (e && e.code) || "error"); }
+        for (const repo of batch) {
+          const a = (Array.isArray(answers) ? answers : []).find((x) => x && x.repo === repo);
+          found.set(repo, asFound(a, order.indexOf(repo)));
+        }
+        return { state: { rpending: rp.slice(SOURCES_PER_TICK) } };
+      }
       const pending = Array.isArray(state.pending) ? state.pending : [];
       if (pending.length === 0) return null;
       const [next, ...rest] = pending;
@@ -235,12 +282,21 @@ export function makeStandardScreen({ kino, name, nameEn, logo = null, logoAspect
     // The box was closed (its arrow, or Back through onBack, already ran the local ops): the flag and the ops go, so the next
     // tree declares no onBack and draws the bar's defaults.
     searchClosed() { return { state: { searching: false, ui: null } }; },
-    search({ value, state, device }) {
+    async search({ value, state, device }) {
       const typed = value && typeof value === "object" ? value.q : value;
       const raw = typed != null && String(typed).trim() !== "" ? typed : state.inputs && state.inputs.q;
       const q = String(raw == null ? "" : raw).trim().slice(0, Q_MAX);
       if (!q) return null;
-      return { go: { search: { q } }, ui: searchClosedOps(device === "tv" && TAB_IDS.length > 1), state: { searching: false, ui: null } };
+      const closed = searchClosedOps(device === "tv" && TAB_IDS.length > 1);
+      if (searchHere) {
+        let sources = [];
+        try { sources = (await searchHere.sources()) || []; } catch (e) { log("sources", (e && e.code) || "error"); }
+        const order = sources.map((x) => x.repo).filter((r) => typeof r === "string");
+        found.clear();
+        return { route: { push: "results" }, ui: closed, state: { searching: false, ui: null, rq: q, rorder: order,
+          rnames: Object.fromEntries(sources.map((x) => [x.repo, String(x.name || x.repo)])), rpending: order } };
+      }
+      return { go: { search: { q } }, ui: closed, state: { searching: false, ui: null } };
     },
     openSettings() { return { route: { push: "settings" }, state: { fromBrowse: true } }; },
     back({ state, route }) {
@@ -253,7 +309,10 @@ export function makeStandardScreen({ kino, name, nameEn, logo = null, logoAspect
   async function screenEvent(ev) {
     const e = ev || {};
     const name = e.name != null ? e.name : e.event;
-    const handler = typeof name === "string" && Object.hasOwn(events, name) ? events[name] : null;
+    // The page's own events first (never one of std's names), then std's.
+    const own = page && page.events && typeof name === "string" && Object.hasOwn(page.events, name) && !Object.hasOwn(events, name) ? page.events[name] : null;
+    if (own) return (await own({ ...e, state: e.state || {} })) ?? null;
+    const handler = typeof name === "string" && name !== "openTabs" && Object.hasOwn(events, name) ? events[name] : null;
     return handler ? (await handler({ ...e, state: e.state || {} })) ?? null : null;
   }
 

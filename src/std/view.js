@@ -84,13 +84,16 @@ const rail = (r, key, words, headers) => ({
  * titles. `pending`: some tab is still being fetched (the timer polls only then). `failed`: the active tab could not load.
  * `searching`: the search box is open (Back then closes it: the Scaffold declares `onBack`).
  */
-export function browseView(cfg, { tab, data, recent, pending, failed, searching = false, device = "phone" }) {
+export function browseView(cfg, { tab, data, recent, pending, failed, searching = false, device = "phone", own = null }) {
   const tv = device === "tv";
-  const tabs = cfg.tabs;
+  // `own` (std's `page`): the plugin's own body nodes in place of the tabs and their rails.
+  const tabs = own ? [cfg.tabs[0]] : cfg.tabs;
   const active = tabs.some((t) => t.id === tab) ? tab : tabs[0].id;
   const withTabs = tabs.length > 1;
   const body = [];
-  if (data) {
+  if (own) {
+    body.push(...own);
+  } else if (data) {
     const h = cfg.imageHeaders;
     if (data.slides.length > 0) body.push(hero(data.slides, h));
     if (recent.length > 0) body.push(rail({ items: recent }, "recent", twin("recent", "title"), h));
@@ -133,6 +136,32 @@ export function browseView(cfg, { tab, data, recent, pending, failed, searching 
       { type: "SingleChildScrollView", key: "browse-" + active, flex: 1, children: [...(banner ? [banner] : []), { type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] },
     ] },
     ...(pending ? { every: { ms: POLL_MS, event: "tick" } } : {}),
+  };
+}
+
+/**
+ * The results page of a search shown here (route "results", std's `searchHere`: Da-Video): one rail per plugin, in the
+ * plugins' order, as each answers — its cards carry `origin` (Kino opens and plays them in that plugin) —, skeletons for the
+ * plugins still asking, a quiet line for one that did not answer. The timer runs while some plugin is still pending.
+ */
+export function resultsView(cfg, { q, order, names, pending, found, device = "phone" }) {
+  const body = [];
+  let shown = 0;
+  order.forEach((repo, i) => {
+    const name = [names[repo] || repo, names[repo] || repo];
+    if (pending.includes(repo)) { body.push({ type: "Column", key: "wait-" + i, gap: 8, children: [{ type: "Text", key: "waitText-" + i, color: "muted", ...twin("resultsSearching", "text", { name }) }, railSkeleton(i)] }); return; }
+    const r = found.get(repo);
+    if (!r || !r.ok) { body.push({ type: "Text", key: "failed-" + i, color: "muted", ...twin("resultsFailed", "text", { name }) }); return; }
+    if (!r.items.length) return;
+    shown++;
+    body.push(rail({ items: r.items }, "found-" + i, twin("resultsIn", "title", { name }), cfg.imageHeaders));
+  });
+  if (!pending.length && shown === 0) body.unshift({ type: "Text", key: "noResults", ...twin("noResults") });
+  return {
+    type: "Scaffold",
+    appBar: bar({ leading: iconButton("back", "arrow_back", "back", "back"), title: { type: "Text", key: "resultsTitle", style: "h4", ...twin("resultsTitle", "text", { q }) } }),
+    body: { type: "SingleChildScrollView", key: "results-page", children: [{ type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] },
+    ...(pending.length ? { every: { ms: 1_500, event: "tick" } } : {}),
   };
 }
 
