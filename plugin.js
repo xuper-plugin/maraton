@@ -144,6 +144,7 @@ var tabBar = (tabs, active) => ({
 });
 var iconButton = (key, icon, word, onPressed) => ({ type: "IconButton", key, icon, ...twin(word, "labelText"), ...twin(word, "tooltip"), onPressed });
 var searchOpenOps = (tabsInBar) => [
+  { hide: "close" },
   { hide: "brand" },
   { hide: "searchButton" },
   { hide: "settingsButton" },
@@ -156,11 +157,13 @@ var searchClosedOps = (tabsInBar) => [
   { hide: "closeSearch" },
   { hide: "q" },
   { clear: "q" },
+  { show: "close" },
   { show: "brand" },
   { show: "searchButton" },
   { show: "settingsButton" },
   ...tabsInBar ? [{ show: "tabs" }] : []
 ];
+var leaveButton = (cfg) => cfg.backArrow ? iconButton("close", "arrow_back", "back", { go: { close: true } }) : iconButton("close", "close", "close", { go: { close: true } });
 function supportNode(device) {
   if (device === "tv") return { type: "QrImage", key: "donate", value: SUPPORT_URL, size: "large", ...twin("supportTv", "labelText") };
   return { type: "ElevatedButton", key: "donate", icon: "heart", ...twin("support", "labelText"), onPressed: { go: { url: { href: SUPPORT_URL } } } };
@@ -207,13 +210,15 @@ var rail = (r, key, words, headers) => ({
   items: r.items,
   ...withHeaders(headers)
 });
-function browseView(cfg, { tab, data, recent, pending, failed, searching = false, device = "phone", own = null }) {
+function browseView(cfg, { tab, data, recent, pending, failed, searching = false, device = "phone", own = null, ownActions = [] }) {
   const tv = device === "tv";
   const tabs = own ? [cfg.tabs[0]] : cfg.tabs;
   const active = tabs.some((t) => t.id === tab) ? tab : tabs[0].id;
   const withTabs = tabs.length > 1;
   const body = [];
-  if (own) {
+  const ownBlocks = own && !Array.isArray(own) && Array.isArray(own.blocks) ? own.blocks : null;
+  if (ownBlocks) {
+  } else if (own) {
     body.push(...own);
   } else if (data) {
     const h = cfg.imageHeaders;
@@ -230,7 +235,7 @@ function browseView(cfg, { tab, data, recent, pending, failed, searching = false
   const banner = body.length > 0 && isBanner(body[0]) ? body.shift() : null;
   const tabsInBar = tv && withTabs;
   const appBar = bar({
-    leading: iconButton("close", "close", "close", { go: { close: true } }),
+    leading: leaveButton(cfg),
     title: { type: "Row", key: "titleRow", gap: tabsInBar ? 24 : 8, crossAxisAlignment: "center", children: [
       { ...iconButton("closeSearch", "arrow_back", "back", { ui: searchClosedOps(tabsInBar), event: "searchClosed" }), hidden: true },
       brand(cfg),
@@ -250,7 +255,10 @@ function browseView(cfg, { tab, data, recent, pending, failed, searching = false
       }
     ] },
     actions: [
-      iconButton("searchButton", "search", "search", { ui: searchOpenOps(tabsInBar), event: "searchOpened" }),
+      // barSearch: false (std 1.7.0): the plugin draws its own search field in its page instead of the bar's icon.
+      ...cfg.barSearch ? [iconButton("searchButton", "search", "search", { ui: searchOpenOps(tabsInBar), event: "searchOpened" })] : [],
+      // std 1.9.0: the page's own bar buttons (page.actions), before the settings gear.
+      ...Array.isArray(ownActions) ? ownActions : [],
       iconButton("settingsButton", "settings", "settings", "openSettings")
     ]
   });
@@ -260,7 +268,7 @@ function browseView(cfg, { tab, data, recent, pending, failed, searching = false
     appBar,
     body: { type: "Column", key: "page", children: [
       ...withTabs && !tv ? [{ type: "Column", key: "tabsRow", padding: { compact: 0, expanded: 24 }, children: [tabBar(tabs, active)] }] : [],
-      { type: "SingleChildScrollView", key: "browse-" + active, flex: 1, children: [...banner ? [banner] : [], { type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] }
+      { type: "SingleChildScrollView", key: "browse-" + active, flex: 1, children: ownBlocks ? ownBlocks.filter((b) => b && Array.isArray(b.nodes) && b.nodes.length).flatMap((b, i) => b.edge ? b.nodes : [{ type: "Column", key: "block-" + i, padding: { compact: 12, expanded: 24 }, gap: 16, crossAxisAlignment: "stretch", children: b.nodes }]) : [...banner ? [banner] : [], { type: "Column", padding: { compact: 12, expanded: 24 }, gap: 16, children: body }] }
     ] },
     ...pending ? { every: { ms: POLL_MS, event: "tick" } } : {}
   };
@@ -283,7 +291,10 @@ function resultsView(cfg, { q, order, names, pending, found, device = "phone" })
     shown++;
     body.push(rail({ items: r.items }, "found-" + i, twin("resultsIn", "title", { name }), cfg.imageHeaders));
   });
-  if (!pending.length && shown === 0) body.unshift({ type: "Text", key: "noResults", ...twin("noResults") });
+  if (!pending.length && shown === 0 && order.some((r) => {
+    const x = found.get(r);
+    return x && x.ok;
+  })) body.unshift({ type: "Text", key: "noResults", ...twin("noResults") });
   return {
     type: "Scaffold",
     appBar: bar({ leading: iconButton("back", "arrow_back", "back", "back"), title: { type: "Text", key: "resultsTitle", style: "h4", ...twin("resultsTitle", "text", { q }) } }),
@@ -305,7 +316,7 @@ function gateView(cfg, device = "phone") {
   const name = [cfg.name, cfg.nameEn || cfg.name];
   return {
     type: "Scaffold",
-    appBar: bar({ leading: iconButton("close", "close", "close", { go: { close: true } }), title: brand(cfg) }),
+    appBar: bar({ leading: leaveButton(cfg), title: brand(cfg) }),
     body: { type: "Column", key: "gate", mainAxisAlignment: "center", crossAxisAlignment: "center", padding: 24, gap: 16, children: [
       { type: "Text", key: "gateTitle", style: "h3", ...twin("gateTitle") },
       { type: "Text", key: "gateText", style: "p", ...twin("gateText", "text", { name }) },
@@ -423,9 +434,38 @@ var INFLIGHT_KEY = "std:inflight";
 var INFLIGHT_STALE_MS = 18e3;
 var MAX_META_TICKS = 10;
 var DEFAULT_TABS = [{ id: "inicio", label: "Inicio", labelEn: "Home" }];
-function makeStandardScreen({ kino: kino2, name, nameEn, logo = null, logoAspect = "1:1", needsResolver, hasSettings, tabs, loadTab, homeKey = null, titleOf: titleOf3, typeOf, tmdbPictures = false, imageHeaders = null, searchHere = null, page: page2 = null }) {
-  const cfg = { name, nameEn, logo, logoAspect, imageHeaders, hasSettings: !!hasSettings, tabs: Array.isArray(tabs) && tabs.length > 0 ? tabs : DEFAULT_TABS };
+var SNAPSHOT_VERSION = 1;
+var SNAPSHOT_MAX_AGE_MS = 24 * 60 * 60 * 1e3;
+var SNAPSHOT_TIMEOUT_MS = 8e3;
+var snapshotUrl = (repo, tab) => "https://raw.githubusercontent.com/" + repo + "/main/home/" + encodeURIComponent(tab) + ".json";
+function snapshotRows(text2, tab, now = Date.now()) {
+  let o;
+  try {
+    o = JSON.parse(String(text2));
+  } catch (_) {
+    return null;
+  }
+  if (!o || o.v !== SNAPSHOT_VERSION || o.tab !== tab || !Array.isArray(o.rows) || o.rows.length === 0) return null;
+  const at = Number(o.at);
+  if (!Number.isFinite(at) || now - at > SNAPSHOT_MAX_AGE_MS || at - now > 60 * 60 * 1e3) return null;
+  return o.rows;
+}
+var lastSource = null;
+function makeStandardScreen({ kino: kino2, name, nameEn, logo = null, logoAspect = "1:1", needsResolver, hasSettings, tabs, loadTab, homeKey = null, titleOf: titleOf3, typeOf, tmdbPictures = false, imageHeaders = null, searchHere = null, page: page2 = null, barSearch = true, backArrow = true, snapshot = null }) {
+  const cfg = { name, nameEn, logo, logoAspect, imageHeaders, hasSettings: !!hasSettings, barSearch: barSearch !== false, backArrow: backArrow !== false, tabs: Array.isArray(tabs) && tabs.length > 0 ? tabs : DEFAULT_TABS };
   const TAB_IDS = cfg.tabs.map((t) => t.id);
+  lastSource = { tabs: cfg.tabs, loadTab, titleOf: titleOf3, typeOf };
+  async function fromSnapshot(tab) {
+    if (typeof snapshot !== "string" || !/^[\w.-]+\/[\w.-]+$/.test(snapshot)) return null;
+    try {
+      const r = await kino2.fetch(snapshotUrl(snapshot, tab), { timeoutMs: SNAPSHOT_TIMEOUT_MS });
+      if (!r || !r.ok) return null;
+      const rows = snapshotRows(await r.text(), tab);
+      return rows ? { rows } : null;
+    } catch (_) {
+      return null;
+    }
+  }
   const meta2 = makeMetaCache({ kino: kino2, titleOf: titleOf3, typeOf, tmdbPictures });
   function slidesFromMeta(rails) {
     const out = [];
@@ -569,7 +609,17 @@ function makeStandardScreen({ kino: kino2, name, nameEn, logo = null, logoAspect
     const pending = Array.isArray(st.pending) && st.pending.length > 0;
     const searching = st.searching === true;
     if (page2) {
-      const tree = browseView(cfg, { tab: TAB_IDS[0], data: null, recent: [], pending: false, failed: false, searching, device, own: page2.view({ ...c, state: st }) || [] });
+      const tree = browseView(cfg, {
+        tab: TAB_IDS[0],
+        data: null,
+        recent: [],
+        pending: false,
+        failed: false,
+        searching,
+        device,
+        own: page2.view({ ...c, state: st }) || [],
+        ownActions: page2.actions ? page2.actions({ ...c, state: st }) || [] : []
+      });
       const every = page2.every ? page2.every({ ...c, state: st }) : null;
       return every ? { ...tree, every } : tree;
     }
@@ -590,7 +640,7 @@ function makeStandardScreen({ kino: kino2, name, nameEn, logo = null, logoAspect
     set(INFLIGHT_KEY, JSON.stringify({ tab, at: Date.now() }));
     let page3;
     try {
-      page3 = await loadTab(tab);
+      page3 = await fromSnapshot(tab) || await loadTab(tab);
     } finally {
       try {
         kino2.storage.remove(INFLIGHT_KEY);
@@ -647,7 +697,7 @@ function makeStandardScreen({ kino: kino2, name, nameEn, logo = null, logoAspect
         try {
           answers2 = await searchHere.searchIn(String(state.rq || ""), batch);
         } catch (e) {
-          log("results", e && e.code || "error");
+          log("results", (e && e.code || "error") + " " + String(e && e.message || "").slice(0, 200));
         }
         for (const repo of batch) {
           const a = (Array.isArray(answers2) ? answers2 : []).find((x) => x && x.repo === repo);
@@ -741,6 +791,23 @@ function makeStandardScreen({ kino: kino2, name, nameEn, logo = null, logoAspect
     return handler ? await handler({ ...e, state: e.state || {} }) ?? null : null;
   }
   return { screen: screen2, screenEvent: screenEvent2, notePlayed };
+}
+
+// src/std/rank.js
+var NEVER_OFFER = /waaw|netu|hqq\./i;
+function offered(url, score) {
+  if (NEVER_OFFER.test(String(url || ""))) return false;
+  return !(typeof score === "number" && score < 0);
+}
+async function scoresFromResolver(kino2, urls) {
+  if (!Array.isArray(urls) || urls.length === 0) return null;
+  try {
+    const r = await kino2.plugins.call("resolver", "rank", { urls: urls.slice(0, 64).map(String) });
+    const s = r && Array.isArray(r.scores) ? r.scores : null;
+    return s && s.length === Math.min(urls.length, 64) ? s : null;
+  } catch (_) {
+    return null;
+  }
 }
 
 // src/logo.js
@@ -2411,7 +2478,7 @@ function langOf(raw) {
   if (/esp|cas|spa/i.test(v)) return "esp";
   return "sub";
 }
-function rankServers(list, preferred = "lat", remembered = "", chosen = "auto", score = null) {
+function rankServers(list, preferred = "lat", remembered = "", chosen = "auto", score = null, ranks = null) {
   const langOrder = [preferred, ...LANGS.filter((l) => l !== preferred)];
   const langRank = (f) => {
     const i = langOrder.indexOf(langOf(f.lang));
@@ -2421,7 +2488,8 @@ function rankServers(list, preferred = "lat", remembered = "", chosen = "auto", 
   const learned = (f) => score ? -score(serverName(f)) : 0;
   const direct = (f) => canExtract(f) ? 0 : 1;
   const memo = (f) => remembered && ((f.server || "").toLowerCase() === remembered || serverName(f) === remembered) ? 0 : 1;
-  return list.map((f, i) => ({ f, i })).sort((a, b) => langRank(a.f) - langRank(b.f) || pick(a.f) - pick(b.f) || direct(a.f) - direct(b.f) || learned(a.f) - learned(b.f) || memo(a.f) - memo(b.f) || serverRank(a.f) - serverRank(b.f) || a.i - b.i).map((x) => x.f);
+  const hostRank = (f) => ranks && typeof ranks.get(f.url) === "number" ? -ranks.get(f.url) : serverRank(f);
+  return list.filter((f) => offered(f.url) && offered(f.server || "") && offered("", ranks ? ranks.get(f.url) : null)).map((f, i) => ({ f, i })).sort((a, b) => langRank(a.f) - langRank(b.f) || pick(a.f) - pick(b.f) || direct(a.f) - direct(b.f) || learned(a.f) - learned(b.f) || memo(a.f) - memo(b.f) || hostRank(a.f) - hostRank(b.f) || a.i - b.i).map((x) => x.f);
 }
 var CAPTURE_WINDOW_MS = { streamwish: 22e3, vidhide: 16e3, vimeos: 14e3, goodstream: 14e3, filemoon: 16e3, videoapp: 16e3, voe: 12e3, other: 16e3, episode_page: 25e3 };
 function captureWindow(f) {
@@ -2765,7 +2833,9 @@ async function playOn(base, run, only) {
     return { why: "list_failed", error: e, servers: 0 };
   }
   if (!listed) return { why: "list_timeout", servers: 0 };
-  let servers = lastIfFailed(rankServers(listed.servers, lang, remembered, chosen, serverScores()), failed);
+  const scores = await scoresFromResolver(kino, listed.servers.map((f) => f.url || f.server || ""));
+  const ranks = scores ? new Map(listed.servers.map((f, i) => [f.url, scores[i]])) : null;
+  let servers = lastIfFailed(rankServers(listed.servers, lang, remembered, chosen, serverScores(), ranks), failed);
   if (only) {
     servers = servers.filter((f) => langOf(f.lang) === only.lang && ((f.server || "").toLowerCase() === only.server || serverName(f) === only.server));
     if (!servers.length) throw kino.error("not_found", `sin el servidor ${only.lang}/${only.server}`, { userMessage: "Ese servidor ya no está disponible para este video." });

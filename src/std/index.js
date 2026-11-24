@@ -1,4 +1,4 @@
-// std 1.7.0 — the standard screen of the xuper-plugin site plugins (golden copy: C:\dev\xuper-plugin\_standard\src\std).
+// std 1.9.3 — the standard screen of the xuper-plugin site plugins (golden copy: C:\dev\xuper-plugin\_standard\src\std).
 // Copy this folder as it is into a plugin's src/std/; a change goes to the golden copy first, then to every plugin.
 //
 // It paints at once from what is kept, then fills each tab as the source answers:
@@ -43,7 +43,8 @@ const DEFAULT_TABS = [{ id: "inicio", label: "Inicio", labelEn: "Home" }];
  * `needsResolver`: the plugin cannot play without kino-resolver installed (the screen is then its install gate while it is
  * missing). `hasSettings`: the manifest declares `settings`. `tabs`: `[{ id, label, labelEn }]`. `loadTab(tabId)` → `{ rows }`.
  * `homeKey`: the kino.storage key where the plugin's home() keeps `{ rows }`, to seed the first tab (optional).
- * `page` (std 1.7.0, Da-Video): `{ open: async (ev) => statePatch, view: (ctx) => nodes, events: { name: async (ev) => answer } }`:
+ * `page` (std 1.7.0, Da-Video): `{ open: async (ev) => statePatch, view: (ctx) => nodes, events: { name: async (ev) => answer } }`
+ * (std 1.9.0: `actions: (ctx) => nodes`, its own bar buttons, drawn before the settings gear):
  * the plugin's own body under the standard bar instead of tabs of title rails (no tab loading); `every?: (ctx) => { ms, event } | null`
  * runs a timer of its own while it answers one.
  * `searchHere` (std 1.7.0, Da-Video): `{ sources: async () => [{ repo, name }], searchIn: async (q, repos) => [{ repo, name, ok,
@@ -52,9 +53,46 @@ const DEFAULT_TABS = [{ id: "inicio", label: "Inicio", labelEn: "Home" }];
  * and its backdrop on the slides, for a site whose own pictures do not load. `imageHeaders`: `{ Referer, "User-Agent" }` sent
  * with the hero's and the rails' pictures (Kino 0.9.83+), for a site whose images need them.
  */
-export function makeStandardScreen({ kino, name, nameEn, logo = null, logoAspect = "1:1", needsResolver, hasSettings, tabs, loadTab, homeKey = null, titleOf, typeOf, tmdbPictures = false, imageHeaders = null, searchHere = null, page = null }) {
-  const cfg = { name, nameEn, logo, logoAspect, imageHeaders, hasSettings: !!hasSettings, tabs: Array.isArray(tabs) && tabs.length > 0 ? tabs : DEFAULT_TABS };
+// ---- Home snapshot (std 1.8.0, owner 2026-11-23) ----
+// Each plugin repository keeps a ready copy of its screen's tabs in home/<tab>.json, written every 6 hours by a GitHub Action
+// (scripts/home-snapshot.mjs) that runs the plugin's own loadTab. The screen reads that file first (one small request instead of
+// scraping the site on the device) and scrapes the site only when the file is missing, broken or older than SNAPSHOT_MAX_AGE_MS.
+
+export const SNAPSHOT_VERSION = 1;
+export const SNAPSHOT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+export const SNAPSHOT_TIMEOUT_MS = 8000;
+
+/** Where a tab's snapshot lives: the repository's main branch on raw.githubusercontent.com. */
+export const snapshotUrl = (repo, tab) => "https://raw.githubusercontent.com/" + repo + "/main/home/" + encodeURIComponent(tab) + ".json";
+
+/** The rows of a snapshot file for [tab], or null when it is not one, is for another tab, is empty or is too old. Pure. */
+export function snapshotRows(text, tab, now = Date.now()) {
+  let o;
+  try { o = JSON.parse(String(text)); } catch (_) { return null; }
+  if (!o || o.v !== SNAPSHOT_VERSION || o.tab !== tab || !Array.isArray(o.rows) || o.rows.length === 0) return null;
+  const at = Number(o.at);
+  if (!Number.isFinite(at) || now - at > SNAPSHOT_MAX_AGE_MS || at - now > 60 * 60 * 1000) return null;
+  return o.rows;
+}
+
+/** The tabs and the live loadTab of the last standard screen made (the snapshot script runs them). */
+let lastSource = null;
+export const snapshotSource = () => lastSource;
+
+export function makeStandardScreen({ kino, name, nameEn, logo = null, logoAspect = "1:1", needsResolver, hasSettings, tabs, loadTab, homeKey = null, titleOf, typeOf, tmdbPictures = false, imageHeaders = null, searchHere = null, page = null, barSearch = true, backArrow = true, snapshot = null }) {
+  const cfg = { name, nameEn, logo, logoAspect, imageHeaders, hasSettings: !!hasSettings, barSearch: barSearch !== false, backArrow: backArrow !== false, tabs: Array.isArray(tabs) && tabs.length > 0 ? tabs : DEFAULT_TABS };
   const TAB_IDS = cfg.tabs.map((t) => t.id);
+  lastSource = { tabs: cfg.tabs, loadTab, titleOf, typeOf };
+  /** [tab]'s rows from the repository's snapshot (`snapshot`: "owner/repo"), or null to scrape the site as before. */
+  async function fromSnapshot(tab) {
+    if (typeof snapshot !== "string" || !/^[\w.-]+\/[\w.-]+$/.test(snapshot)) return null;
+    try {
+      const r = await kino.fetch(snapshotUrl(snapshot, tab), { timeoutMs: SNAPSHOT_TIMEOUT_MS });
+      if (!r || !r.ok) return null;
+      const rows = snapshotRows(await r.text(), tab);
+      return rows ? { rows } : null;
+    } catch (_) { return null; }
+  }
   const meta = makeMetaCache({ kino, titleOf, typeOf, tmdbPictures });
   /** A source with no backdrops: slides from the first titles TMDB knows a backdrop for (with its synopsis and logo). */
   function slidesFromMeta(rails) {
@@ -169,7 +207,8 @@ export function makeStandardScreen({ kino, name, nameEn, logo = null, logoAspect
     const pending = Array.isArray(st.pending) && st.pending.length > 0;
     const searching = st.searching === true;
     if (page) {
-      const tree = browseView(cfg, { tab: TAB_IDS[0], data: null, recent: [], pending: false, failed: false, searching, device, own: page.view({ ...c, state: st }) || [] });
+      const tree = browseView(cfg, { tab: TAB_IDS[0], data: null, recent: [], pending: false, failed: false, searching, device, own: page.view({ ...c, state: st }) || [],
+        ownActions: page.actions ? page.actions({ ...c, state: st }) || [] : [] });
       // The page may run its own timer (e.g. while a long job of its own runs): { ms, event }, one of its own events.
       const every = page.every ? page.every({ ...c, state: st }) : null;
       return every ? { ...tree, every } : tree;
@@ -191,7 +230,7 @@ export function makeStandardScreen({ kino, name, nameEn, logo = null, logoAspect
   async function load(tab) {
     set(INFLIGHT_KEY, JSON.stringify({ tab, at: Date.now() }));
     let page;
-    try { page = await loadTab(tab); } finally { try { kino.storage.remove(INFLIGHT_KEY); } catch (_) { /* no storage */ } }
+    try { page = (await fromSnapshot(tab)) || (await loadTab(tab)); } finally { try { kino.storage.remove(INFLIGHT_KEY); } catch (_) { /* no storage */ } }
     const data = tabOf(page);
     if (data) { memo.set(tab, { data, whole: true }); writeSnap(tab, data); }
     return data !== null;
@@ -234,7 +273,7 @@ export function makeStandardScreen({ kino, name, nameEn, logo = null, logoAspect
         const batch = rp.slice(0, SOURCES_PER_TICK);
         const order = Array.isArray(state.rorder) ? state.rorder : [];
         let answers = [];
-        try { answers = await searchHere.searchIn(String(state.rq || ""), batch); } catch (e) { log("results", (e && e.code) || "error"); }
+        try { answers = await searchHere.searchIn(String(state.rq || ""), batch); } catch (e) { log("results", ((e && e.code) || "error") + " " + String((e && e.message) || "").slice(0, 200)); }
         for (const repo of batch) {
           const a = (Array.isArray(answers) ? answers : []).find((x) => x && x.repo === repo);
           found.set(repo, asFound(a, order.indexOf(repo)));

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.5
+
+- Servers ordered by how well each hoster plays (kino-resolver's ranking); netu no longer offered (std 1.9.3)
+
 ## 0.9.4
 
 - Catalog door: Da-Video finds titles here (std 1.7.0)

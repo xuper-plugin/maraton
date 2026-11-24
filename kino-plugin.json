@@ -1,7 +1,7 @@
 {
   "id": "maraton",
   "name": "PelisYSeries",
-  "version": "0.9.4",
+  "version": "0.9.5",
   "apiVersion": 30,
   "entry": "plugin.js",
   "description": "Series, anime y películas en latino, castellano o subtitulado. El video se busca en tu propio aparato, sin servidores intermedios.",
@@ -172,7 +172,7 @@
   ],
   "signature": {
     "authorKey": "6693946bd5c56196960959c4b9665fad5094374bcb85ddb282f8bf762c835263",
-    "value": "642dfb30100d2531a96c20d1398e1699d02b44bc1606a57a111beefaddee91e9d32e0f4919078011c88126216748058107b1b1c75891956a772c7a8a66ce3807"
+    "value": "c81ee1727c2b4121953796862fa19cfa63943ce90a45bb3da4d9a9abe2acf8f8d03b56d2dd1c2ae925fce4029d494adc79c2009ee1e26effd66a8ed6ad19a70d"
   },
   "screen": {
     "label": "PelisYSeries",
@@ -193,7 +193,10 @@
     "resolver": {
       "repo": "xuper-plugin/kino-plugin-kino-resolver",
       "door": "resolver",
-      "calls": ["resolve", "rank"]
+      "calls": [
+        "resolve",
+        "rank"
+      ]
     }
   },
   "provides": {
