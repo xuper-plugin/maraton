@@ -7,6 +7,7 @@
 // Rows:  "row|<site>|<kind>" with the catalog page number as the cursor.
 
 import { makeStandardScreen } from "./std/index.js";
+import { offered, scoresFromResolver } from "./std/rank.js";
 import { LOGO, LOGO_ASPECT } from "./logo.js";
 
 
@@ -1968,16 +1969,20 @@ export function langOf(raw) {
  * then the one that last produced a video on this site ([remembered]), then [SERVER_PREFERENCE]; the page's own order
  * breaks ties. (Inside the groups, so a server that failed once is still tried before a 20 s hidden page.)
  */
-export function rankServers(list, preferred = "lat", remembered = "", chosen = "auto", score = null) {
+export function rankServers(list, preferred = "lat", remembered = "", chosen = "auto", score = null, ranks = null) {
   const langOrder = [preferred, ...LANGS.filter((l) => l !== preferred)];
   const langRank = (f) => { const i = langOrder.indexOf(langOf(f.lang)); return i < 0 ? LANGS.length : i; };
   const pick = (f) => (chosen && chosen !== "auto" && serverMatches(f, chosen) ? 0 : 1);
   const learned = (f) => (score ? -score(serverName(f)) : 0);
   const direct = (f) => (canExtract(f) ? 0 : 1);
   const memo = (f) => (remembered && ((f.server || "").toLowerCase() === remembered || serverName(f) === remembered) ? 0 : 1);
+  // [ranks]: kino-resolver's score per server address (its rank call, from the playback audit); it replaces the hand-made
+  // SERVER_PREFERENCE, which stays for an older resolver. Waaw/netu, or a score below 0, is never offered (std/rank.js).
+  const hostRank = (f) => (ranks && typeof ranks.get(f.url) === "number" ? -ranks.get(f.url) : serverRank(f));
   return list
+    .filter((f) => offered(f.url) && offered(f.server || "") && offered("", ranks ? ranks.get(f.url) : null))
     .map((f, i) => ({ f, i }))
-    .sort((a, b) => (langRank(a.f) - langRank(b.f)) || (pick(a.f) - pick(b.f)) || (direct(a.f) - direct(b.f)) || (learned(a.f) - learned(b.f)) || (memo(a.f) - memo(b.f)) || (serverRank(a.f) - serverRank(b.f)) || (a.i - b.i))
+    .sort((a, b) => (langRank(a.f) - langRank(b.f)) || (pick(a.f) - pick(b.f)) || (direct(a.f) - direct(b.f)) || (learned(a.f) - learned(b.f)) || (memo(a.f) - memo(b.f)) || (hostRank(a.f) - hostRank(b.f)) || (a.i - b.i))
     .map((x) => x.f);
 }
 
@@ -2409,7 +2414,9 @@ async function playOn(base, run, only) {
     return { why: "list_failed", error: e, servers: 0 };
   }
   if (!listed) return { why: "list_timeout", servers: 0 };
-  let servers = lastIfFailed(rankServers(listed.servers, lang, remembered, chosen, serverScores()), failed);
+  const scores = await scoresFromResolver(kino, listed.servers.map((f) => f.url || f.server || ""));
+  const ranks = scores ? new Map(listed.servers.map((f, i) => [f.url, scores[i]])) : null;
+  let servers = lastIfFailed(rankServers(listed.servers, lang, remembered, chosen, serverScores(), ranks), failed);
   if (only) {
     servers = servers.filter((f) => langOf(f.lang) === only.lang && ((f.server || "").toLowerCase() === only.server || serverName(f) === only.server));
     if (!servers.length) throw kino.error("not_found", `sin el servidor ${only.lang}/${only.server}`, { userMessage: "Ese servidor ya no está disponible para este video." });
