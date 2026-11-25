@@ -858,7 +858,6 @@ function catalogEpisodes(list) {
   const rows = Array.isArray(list) ? list : list && Array.isArray(list.episodes) ? list.episodes : [];
   const out = [];
   for (const e of rows) {
-    if (out.length >= CATALOG_EPISODES_MAX) break;
     if (!e) continue;
     const number = wholeNumber(e.number);
     if (number === null || number < 1 || typeof e.ref !== "string" || !e.ref) continue;
@@ -868,7 +867,7 @@ function catalogEpisodes(list) {
     if (typeof e.title === "string" && e.title) row.title = e.title;
     out.push(row);
   }
-  return out;
+  return out.length > CATALOG_EPISODES_MAX ? out.slice(-CATALOG_EPISODES_MAX) : out;
 }
 function catalogEpisodesDoor(episodes2) {
   return async (arg) => {

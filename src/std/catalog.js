@@ -73,12 +73,15 @@ function wholeNumber(v) {
   return null;
 }
 
-/** A plugin's own `episodes` answer (an array or `{ episodes }`) as the door's `Episode`s: season (missing = 1), number, ref, title. */
+/**
+ * A plugin's own `episodes` answer (an array or `{ episodes }`) as the door's `Episode`s: season (missing = 1), number, ref,
+ * title, in the plugin's order. Past CATALOG_EPISODES_MAX valid rows the LAST ones are kept: plugins list oldest first, so a
+ * long anime still shows its newest episodes.
+ */
 export function catalogEpisodes(list) {
   const rows = Array.isArray(list) ? list : list && Array.isArray(list.episodes) ? list.episodes : [];
   const out = [];
   for (const e of rows) {
-    if (out.length >= CATALOG_EPISODES_MAX) break;
     if (!e) continue;
     const number = wholeNumber(e.number);
     if (number === null || number < 1 || typeof e.ref !== "string" || !e.ref) continue;
@@ -88,7 +91,7 @@ export function catalogEpisodes(list) {
     if (typeof e.title === "string" && e.title) row.title = e.title;
     out.push(row);
   }
-  return out;
+  return out.length > CATALOG_EPISODES_MAX ? out.slice(-CATALOG_EPISODES_MAX) : out;
 }
 
 /** The door's `episodes` call over a plugin's own [episodes]: an empty ref answers nothing, without asking the site. */

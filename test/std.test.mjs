@@ -634,6 +634,18 @@ test("catalogEpisodes: at most 500", async () => {
   assert.equal(catalogEpisodes(many).length, 500);
 });
 
+test("catalogEpisodes keeps the newest 500 rows of a longer list", async () => {
+  const { catalogEpisodes } = await import("../src/std/catalog.js");
+  // Oldest first, as plugins list them, with bad rows mixed in (they never count toward the 500).
+  const many = [];
+  for (let i = 1; i <= 1100; i++) many.push({ season: 1, number: i, ref: "r" + i }, i % 2 ? { number: 0, ref: "bad" } : null);
+  const out = catalogEpisodes(many);
+  assert.equal(out.length, 500);
+  assert.deepEqual(out[0], { season: 1, number: 601, ref: "r601" });
+  assert.deepEqual(out[499], { season: 1, number: 1100, ref: "r1100" });
+  assert.deepEqual(out.map((e) => e.number), Array.from({ length: 500 }, (_, i) => 601 + i), "the plugin's order");
+});
+
 test("catalogEpisodesDoor answers [] for an empty ref without calling the site", async () => {
   const { catalogEpisodesDoor } = await import("../src/std/catalog.js");
   let calls = 0;
