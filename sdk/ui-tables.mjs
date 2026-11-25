@@ -513,6 +513,8 @@ const GO_FIELDS = {
   relinkTelegram: "`{ relinkTelegram: true }`",
   useTheme: `\`{ useTheme: { ${S.goUseTheme.fields.join(", ")} } }\``,
   installPlugin: `\`{ installPlugin: { ${S.goInstallPlugin.fields.join(", ")} } }\``,
+  uninstallPlugin: `\`{ uninstallPlugin: { ${S.goUninstallPlugin.fields.join(", ")} } }\``,
+  applyImageTheme: `\`{ applyImageTheme: { ${S.goApplyImageTheme.fields.join(", ")} } }\``,
   plugin: `\`{ plugin: { ${S.goPlugin.fields.join(", ")} } }\``,
   setExperience: `\`{ setExperience: ${S.goSetExperience.words.map((w) => `"${w}"`).join(" | ")} }\``,
 };
@@ -535,10 +537,14 @@ const GO_OPENS = {
   useTheme: "turns on one of this plugin's own `appThemes` as Apariencia does, or back to Kino's theme with `theme: null`; Kino shows its own toast",
   setExperience: "asks for the light or the full experience of the whole app; Kino asks the person first and changes nothing without their yes",
   installPlugin: "Kino's own install sheet for `repo` (a plain `owner/name`); nothing installs without the person's own Instalar",
+  uninstallPlugin: "Kino's own uninstall question for `repo`, a plugin yours manages (`manage`); nothing is uninstalled without the person's own Desinstalar",
+  applyImageTheme: "Kino's own sheet offering an image as the person's theme; nothing changes without the person's own yes there",
   plugin: "another plugin's screen at `route` with `args`, or its search for `query`, found by `repo` (a GitHub `owner/name[/path]`)",
 };
 const goFrom = (g) => g === "relinkTelegram" ? `only the person's own ${S.goUrl.fromTriggers.join(" or ")}, from apiVersion ${S.goRelinkTelegram.apiVersion}`
   : g === "plugin" ?`only the person's own ${S.goUrl.fromTriggers.join(" or ")} on your screen, from apiVersion ${S.goPlugin.apiVersion}`
+  : g === "applyImageTheme" ? `only the person's own ${S.goUrl.fromTriggers.join(" or ")} on your screen, from apiVersion ${S.goApplyImageTheme.apiVersion}`
+  : g === "uninstallPlugin" ? `only the person's own ${S.goUrl.fromTriggers.join(" or ")} on your screen, from apiVersion ${S.goUninstallPlugin.apiVersion}`
   : g === "installPlugin" ? `only the person's own ${S.goUrl.fromTriggers.join(" or ")} on your screen, from apiVersion ${S.goInstallPlugin.apiVersion}`
   : g === "setExperience" ? `only the person's own ${S.goUrl.fromTriggers.join(" or ")} on your screen, from apiVersion ${S.goSetExperience.apiVersion}`
   : g === "useTheme" ? `only the person's own ${S.goUrl.fromTriggers.join(" or ")} on your screen, from apiVersion ${S.goUseTheme.apiVersion}`

@@ -152,7 +152,7 @@ function bareRepo(text) {
 }
 
 /** `consumes` as the app reads it: one use per alias. Throws Error with the app's message. */
-export function parseConsumes(raw) {
+export function parseConsumes(raw, api = P.consumes.authorApiVersion) {
   const uses = objectOf(raw, "consumes");
   if (Object.keys(uses).length > P.consumes.maxEntries) fail(`consumes: at most ${P.consumes.maxEntries} entries`);
   const names = (list, alias, field, max) => {
@@ -164,11 +164,36 @@ export function parseConsumes(raw) {
   return sortedKeys(uses).map((alias) => {
     nameOf(alias, "alias");
     const u = objectOf(uses[alias], `consumes "${alias}"`);
-    const repo = typeof u.repo === "string" ? bareRepo(u.repo) : null;
-    if (repo === null) fail(`consumes "${alias}": "repo" must be a plain GitHub owner/name`);
+    // apiVersion 31 (contract.protocol.consumes.authorApiVersion): an entry names exactly one of repo and author; apiVersion 34
+    // (roleApiVersion) adds role.
+    const hasRepo = !isNull(u.repo), hasAuthor = !isNull(u.author), hasRole = !isNull(u.role);
+    if ([hasRepo, hasAuthor, hasRole].filter(Boolean).length !== 1) fail(`consumes "${alias}": name exactly one of "repo", "author" and "role"`);
+    if (hasRole) return roleUse(alias, u, api, names);
+    let repo = null, author = null;
+    if (hasRepo) {
+      repo = typeof u.repo === "string" ? bareRepo(u.repo) : null;
+      if (repo === null) fail(`consumes "${alias}": "repo" must be a plain GitHub owner/name`);
+    } else {
+      if (api < P.consumes.authorApiVersion) fail(`consumes "${alias}": "author" needs apiVersion ${P.consumes.authorApiVersion}`);
+      author = typeof u.author === "string" && /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/.test(u.author.trim()) ? u.author.trim().toLowerCase() : null;
+      if (author === null) fail(`consumes "${alias}": "author" must be a GitHub owner name`);
+    }
     if (typeof u.door !== "string") fail(`consumes "${alias}": needs a "door"`);
-    return { alias, repo, door: nameOf(u.door, "door"), calls: names(u.calls, alias, "calls", P.consumes.maxCallsPerEntry), streams: names(u.streams, alias, "streams", P.consumes.maxStreamsPerEntry) };
+    return { alias, repo, ...(author ? { author } : {}), door: nameOf(u.door, "door"), calls: names(u.calls, alias, "calls", P.consumes.maxCallsPerEntry), streams: names(u.streams, alias, "streams", P.consumes.maxStreamsPerEntry) };
   });
+}
+
+/** A `role` entry (apiVersion 34, ProtocolManifest.parseRoleUse): only "resolver", its standard door, only its guaranteed calls. */
+function roleUse(alias, u, api, names) {
+  const R = contract.protocol.resolverRole;
+  if (api < P.consumes.roleApiVersion) fail(`consumes "${alias}": "role" needs apiVersion ${P.consumes.roleApiVersion}`);
+  if (u.role !== R.role) fail(`consumes "${alias}": "role" must be "${R.role}"`);
+  if (!isNull(u.door) && u.door !== R.door) fail(`consumes "${alias}": a "role" entry's door is "${R.door}"`);
+  const calls = names(u.calls, alias, "calls", P.consumes.maxCallsPerEntry);
+  const extra = calls.find((c) => !R.calls.includes(c));
+  if (extra) fail(`consumes "${alias}": the "${R.role}" role answers only ${R.calls.map((c) => `"${c}"`).join(", ")}, not "${extra}"`);
+  if (names(u.streams, alias, "streams", P.consumes.maxStreamsPerEntry).length) fail(`consumes "${alias}": a "role" entry lists calls only, never streams`);
+  return { alias, repo: null, role: R.role, door: R.door, calls, streams: [] };
 }
 
 /**
@@ -186,7 +211,7 @@ export function protocolBlocks(rawManifest) {
   for (const [prefix, src] of sources) {
     for (const [field, parse] of [["provides", parseProvides], ["consumes", parseConsumes]]) {
       if (src[field] === undefined) continue;
-      try { out[field] = parse(src[field]); } catch (e) { out.problems.push(`${prefix}${field}: ${e.message}`); }
+      try { out[field] = parse(src[field], api); } catch (e) { out.problems.push(`${prefix}${field}: ${e.message}`); }
     }
   }
   return out;
@@ -274,8 +299,14 @@ export function createProtocolCaller({ consumes, providers, caller = KIT_CALLER,
   const resolveUse = (alias, listed) => {
     const use = consumes.find((u) => u.alias === alias);
     if (!use || !listed(use)) throw protocolError("not_declared", `"${alias}" is not in this plugin's consumes, or does not list it`);
+    // An author entry names no single provider: it is asked through callAll / providers (the app's bad_input).
+    if (use.author) throw protocolError("bad_input", `"${alias}" is a consumes entry by author: use kino.plugins.callAll or providers`);
+    // apiVersion 34: a role entry takes the first --provider folder with the standard door (the app asks them in name order).
     const provider = providers.find((p) => p.doors.some((d) => d.name === use.door));
-    if (!provider) throw protocolError("provider_missing", `no provider has the door "${use.door}": install the plugin of ${use.repo}`);
+    if (!provider) {
+      throw protocolError("provider_missing", use.role ? `no resolver: pass a --provider folder that opens the "${use.door}" door`
+        : `no provider has the door "${use.door}": install the plugin of ${use.repo}`);
+    }
     return { use, provider, door: provider.doors.find((d) => d.name === use.door) };
   };
   const invoke = async (provider, name, argument) => {
@@ -295,7 +326,47 @@ export function createProtocolCaller({ consumes, providers, caller = KIT_CALLER,
     if (text === undefined || utf8(text) > P.call.maxPayloadBytes) throw protocolError("bad_output", `the provider's ${name} answered something that is not JSON, or over ${P.call.maxPayloadBytes} bytes`);
     return JSON.parse(text);
   };
+  // apiVersion 31: the providers an author entry covers — every --provider folder with the door whose repository (its git origin)
+  // is the author's; a folder with no known repository is taken too (the kit cannot tell), as the app would refuse a fork.
+  const authorProviders = (alias) => {
+    const use = consumes.find((u) => u.alias === alias);
+    if (!use) throw protocolError("not_declared", `"${alias}" is not in this plugin's consumes`);
+    if (!use.author) throw protocolError("bad_input", `"${alias}" names one provider (repo): use kino.plugins.call`);
+    const list = providers.filter((p) => p.doors.some((d) => d.name === use.door) && (!p.repo || p.repo.split("/")[0].toLowerCase() === use.author))
+      .sort((a, b) => String(a.name ?? a.id).toLowerCase().localeCompare(String(b.name ?? b.id).toLowerCase()));
+    return { use, list };
+  };
+  const callOne = async (provider, door, call, arg) => {
+    const decl = door.calls[call];
+    const name = exportOf(door.name, call);
+    if (typeof provider.plugin[name] !== "function") throw protocolError("provider_failed", `the provider does not export ${name}`);
+    if (!admit(bucketOf(provider, door), P.call.maxCalls)) throw protocolError("rate_limited", `at most ${P.call.maxCalls} calls in ${P.call.windowMs / 1000} s per door`);
+    const input = validateInput(decl.input, door.types, arg);
+    if (!input.ok) throw protocolError("bad_input", input.message);
+    const output = validateOutput(decl.output, door.types, await invoke(provider, name, input.value));
+    if (!output.ok) throw protocolError("bad_output", output.message);
+    return output.value;
+  };
   return {
+    /** apiVersion 31: `call` of every provider an author entry covers, at once: [{ repo, id, name, ok, value | code }]. */
+    async callAll(alias, call, arg, only = null) {
+      const { use, list } = authorProviders(alias);
+      if (!use.calls.includes(call)) throw protocolError("not_declared", `"${alias}" does not list "${call}"`);
+      const wanted = Array.isArray(only) ? new Set(only.map((r) => String(r).toLowerCase())) : null;
+      const asked = list.filter((p) => !wanted || (p.repo && wanted.has(p.repo.toLowerCase()))).slice(0, P.callAll.maxProviders);
+      return Promise.all(asked.map(async (p) => {
+        const door = p.doors.find((d) => d.name === use.door);
+        const head = { repo: p.repo ? p.repo.toLowerCase() : null, id: p.id, name: p.name ?? p.id };
+        try {
+          if (!door.calls[call]) throw protocolError("not_declared", `the door "${use.door}" has no call "${call}"`);
+          return { ...head, ok: true, value: await callOne(p, door, call, arg) };
+        } catch (e) { return { ...head, ok: false, code: e?.code ?? "provider_failed" }; }
+      }));
+    },
+    /** apiVersion 31: the providers an author entry covers, with no call: [{ repo, id, name, version }]. */
+    providers(alias) {
+      return authorProviders(alias).list.map((p) => ({ repo: p.repo ? p.repo.toLowerCase() : null, id: p.id, name: p.name ?? p.id, version: p.version ?? "" }));
+    },
     async call(alias, call, arg) {
       const { use, provider, door } = resolveUse(alias, (u) => u.calls.includes(call));
       const decl = door.calls[call];

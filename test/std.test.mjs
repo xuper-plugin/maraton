@@ -411,7 +411,7 @@ test("catalogItems: a plugin's search results as the catalog door's Item, at mos
   assert.deepEqual(out[0], { id: "i1", ref: "m:1", title: "Title 1", kind: "movie", poster: "https://img/p1.jpg", backdrop: "https://img/b1.jpg", year: "2001", overview: "Overview 1", tmdb: 77 });
   assert.deepEqual(catalogItems([{ id: "x", ref: "r", title: "T", kind: "series" }]), [{ id: "x", ref: "r", title: "T", kind: "series" }]);
   assert.deepEqual(catalogItems([{ id: "", ref: "r", title: "T", kind: "movie" }, null, { id: "y" }]), []);
-  assert.deepEqual(Object.keys(CATALOG_PROVIDES.catalog.calls), ["search"]);
+  assert.deepEqual(Object.keys(CATALOG_PROVIDES.catalog.calls), ["search", "episodes"]);
 });
 
 /** A Da-Video-like screen: its search is shown here, from several plugins answering one after another. */
@@ -610,4 +610,64 @@ test("rankServers: netu/Waaw never offered (even without a resolver), and a serv
   assert.deepEqual((await rankServers(kino, servers, (s) => s.u)).map((s) => s.u), ["voe"]);
   const old = { plugins: { call: async () => { throw new Error("not_declared"); } } };
   assert.deepEqual((await rankServers(old, servers, (s) => s.u)).map((s) => s.u), ["voe", "gone"]);
+});
+
+test("catalogEpisodes keeps season, number, ref, title and drops bad rows", async () => {
+  const { catalogEpisodes } = await import("../src/std/catalog.js");
+  const out = catalogEpisodes({ episodes: [
+    { season: 2, number: 3, ref: "e:1:2:3", title: "Three", extra: 1 }, { season: 1, number: 0, ref: "x" },
+    { season: 1, number: 2, ref: "" }, null, { number: 1.5, ref: "y" }, { season: 1, number: 4, ref: "e4", title: 5 },
+  ] });
+  assert.deepEqual(out, [{ season: 2, number: 3, ref: "e:1:2:3", title: "Three" }, { season: 1, number: 4, ref: "e4" }]);
+  assert.deepEqual(catalogEpisodes([{ number: 1, ref: "a" }]), [{ season: 1, number: 1, ref: "a" }]);
+});
+
+test("catalogEpisodes: a row without season is season 1", async () => {
+  const { catalogEpisodes } = await import("../src/std/catalog.js");
+  assert.equal(catalogEpisodes([{ number: 7, ref: "r" }])[0].season, 1);
+});
+
+test("catalogEpisodes: at most 500", async () => {
+  const { catalogEpisodes, CATALOG_EPISODES_MAX } = await import("../src/std/catalog.js");
+  const many = Array.from({ length: 700 }, (_, i) => ({ season: 1, number: i + 1, ref: "r" + i }));
+  assert.equal(CATALOG_EPISODES_MAX, 500);
+  assert.equal(catalogEpisodes(many).length, 500);
+});
+
+test("catalogEpisodesDoor answers [] for an empty ref without calling the site", async () => {
+  const { catalogEpisodesDoor } = await import("../src/std/catalog.js");
+  let calls = 0;
+  const door = catalogEpisodesDoor(async (ref) => { calls++; return [{ number: 1, ref }]; });
+  assert.deepEqual(await door({ ref: "  " }), []);
+  assert.deepEqual(await door(null), []);
+  assert.equal(calls, 0);
+  assert.deepEqual(await door({ ref: "s:1" }), [{ season: 1, number: 1, ref: "s:1" }]);
+});
+
+test("catalogQuery carries tmdb into tmdbId", async () => {
+  const { catalogQuery } = await import("../src/std/catalog.js");
+  assert.equal(catalogQuery({ q: "a", tmdb: 603 }).tmdbId, 603);
+  assert.equal(catalogQuery({ q: "a", tmdb: -1 }).tmdbId, 0);
+  assert.equal(catalogQuery({ q: "a", tmdb: "603" }).tmdbId, 0);
+  assert.equal(catalogQuery({ q: "a" }).tmdbId, 0);
+});
+
+test("numeric strings are accepted for season and number", async () => {
+  const { catalogEpisodes } = await import("../src/std/catalog.js");
+  assert.deepEqual(catalogEpisodes([{ season: " 2 ", number: "12", ref: "r" }, { number: "x", ref: "r" }]), [{ season: 2, number: 12, ref: "r" }]);
+});
+
+test("a present but invalid season drops the row", async () => {
+  const { catalogEpisodes } = await import("../src/std/catalog.js");
+  const out = catalogEpisodes([
+    { season: -1, number: 1, ref: "a" }, { season: 1.5, number: 1, ref: "b" }, { season: "x", number: 1, ref: "c" },
+    { season: 0, number: 1, ref: "d" }, { season: null, number: 1, ref: "e" },
+  ]);
+  assert.deepEqual(out, [{ season: 0, number: 1, ref: "d" }, { season: 1, number: 1, ref: "e" }]);
+});
+
+test("catalogEpisodesDoor passes a { episodes: [...] } answer through", async () => {
+  const { catalogEpisodesDoor } = await import("../src/std/catalog.js");
+  const door = catalogEpisodesDoor(async () => ({ episodes: [{ season: 1, number: 2, ref: "r", title: "T" }] }));
+  assert.deepEqual(await door({ ref: "s:1" }), [{ season: 1, number: 2, ref: "r", title: "T" }]);
 });

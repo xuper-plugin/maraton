@@ -59,3 +59,25 @@ export function aiOriginAllowed({ fn, screen = false, press = false, tick = fals
   const fromScreen = screen || fn === contract.manifest.screen.exports.event;
   return !fromScreen || (screen && press);
 }
+
+/**
+ * A legacy panel's or the player slot's call as the app marks it (PluginCall.panelPress): `true` while the person's own press or
+ * submit is being answered. run.mjs sets it around `panelAction` (press and submit triggers) and `playerSlotAction`; a test can
+ * do the same. A screen's press travels in [kitScreenCall].
+ */
+export const kitPanelPress = new AsyncLocalStorage();
+
+/**
+ * PluginQueue.mayWrite: whether a call may change the music queue (kino.player.queue add, remove, move, playAt, clear): one of
+ * contract.kinoQueue.writeFrom, interactive, no job's, no timer's tick, and the person's own press (a screen's press or a
+ * panel's or slot's press or submit). The playerControl capability changes nothing here. [fn] the export running.
+ */
+export function queueWriteAllowed({ fn, press = false, panelPress = false, tick = false, job = false, interactive = true }) {
+  return interactive && !job && !tick && contract.kinoQueue.writeFrom.includes(fn) && (press || panelPress);
+}
+
+/** The origin of the call running now, as queueWriteAllowed reads it. */
+export function currentQueueOrigin() {
+  const o = currentQrOrigin();
+  return { fn: o.fn, press: o.press, tick: o.tick, panelPress: kitPanelPress.getStore() === true, job: kitJobRequest.getStore() !== undefined };
+}

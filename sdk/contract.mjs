@@ -278,6 +278,76 @@ export function installPluginGoOf(v, bad) {
 }
 
 /**
+ * PluginScreenOutput.applyImageThemeGoOf (apiVersion 33): a `go.applyImageTheme`'s value, only `name`, `image`, `colors`, `fit`
+ * and `dim`. `image` is exactly one of an https `url` or inline base64 `data` plus a `mime`; the bytes are read only when
+ * [allowData] (the answer to the person's own press), never from a node's own action. `colors` keys are the app themes' colour
+ * roles, each `#RRGGBB`. Or null with [bad] told the first reason. Returns the go's value with `fit` always set.
+ */
+export function applyImageThemeGoOf(v, allowData, bad) {
+  const A = contract.manifest.screen.goApplyImageTheme;
+  if (v === null || typeof v !== "object" || Array.isArray(v)) { bad("is not an object"); return null; }
+  if (Object.keys(v).some((k) => !A.fields.includes(k))) { bad(`takes only ${A.fields.join(", ")}`); return null; }
+  const name = typeof v.name === "string" ? urlTitleOf(v.name) : "";
+  if (name === "" || name.length > A.maxNameChars) { bad(`name must be 1 to ${A.maxNameChars} characters`); return null; }
+  const image = v.image;
+  if (image === null || typeof image !== "object" || Array.isArray(image)) { bad("image must be an object"); return null; }
+  if (Object.keys(image).some((k) => !A.imageFields.includes(k))) { bad(`image takes only ${A.imageFields.join(", ")}`); return null; }
+  const hasUrl = Object.hasOwn(image, "url");
+  const hasData = Object.hasOwn(image, "data");
+  if (hasUrl === hasData) { bad("image needs exactly one of url or data"); return null; }
+  let outImage;
+  if (hasUrl) {
+    if (Object.hasOwn(image, "mime")) { bad("image.mime goes only with data"); return null; }
+    if (typeof image.url !== "string" || !image.url.startsWith("https://") || image.url.length > A.maxUrlChars) {
+      bad(`image.url must be an https address of at most ${A.maxUrlChars} characters`); return null;
+    }
+    outImage = { url: image.url };
+  } else {
+    if (!allowData) { bad("image.data is accepted only in the answer to a press, not in a node's own action"); return null; }
+    if (typeof image.mime !== "string" || !A.mimes.includes(image.mime)) { bad(`image.mime must be ${A.mimes.join(", ")}`); return null; }
+    if (typeof image.data !== "string") { bad("image.data must be base64 text"); return null; }
+    // Rejected before decoding what could not fit: base64 is 4 characters per 3 bytes.
+    if (image.data.length > Math.floor((A.maxDataBytes + 2) / 3) * 4) { bad(`image.data is over ${A.maxDataBytes} bytes`); return null; }
+    const size = base64Size(image.data);
+    if (size === null || size === 0) { bad("image.data is not base64"); return null; }
+    if (size > A.maxDataBytes) { bad(`image.data is over ${A.maxDataBytes} bytes`); return null; }
+    outImage = { data: image.data, mime: image.mime };
+  }
+  let fit = A.defaultFit;
+  if (v.fit !== undefined && v.fit !== null) {
+    if (!A.fits.includes(v.fit)) { bad(`fit ${typeof v.fit === "string" ? JSON.stringify(v.fit) : String(v.fit)} is not ${A.fits.join(" or ")}`); return null; }
+    fit = v.fit;
+  }
+  const out = { name, image: outImage };
+  if (v.dim !== undefined && v.dim !== null) {
+    if (typeof v.dim !== "number" || !Number.isFinite(v.dim) || v.dim < 0 || v.dim > A.maxDim) { bad(`dim must be a number from 0 to ${A.maxDim}`); return null; }
+    out.dim = v.dim;
+  }
+  if (v.colors !== undefined && v.colors !== null) {
+    if (typeof v.colors !== "object" || Array.isArray(v.colors)) { bad("colors must be an object"); return null; }
+    const roles = Object.keys(contract.manifest.appThemes.tokens).filter((t) => t.startsWith("colors.")).map((t) => t.slice(7));
+    const colors = {};
+    const pattern = new RegExp(A.colorPattern);
+    for (const key of Object.keys(v.colors)) {
+      if (!roles.includes(key)) { bad(`colors.${key.slice(0, 40)} is not a colour role`); return null; }
+      if (typeof v.colors[key] !== "string" || !pattern.test(v.colors[key])) { bad(`colors.${key} must look like #RRGGBB`); return null; }
+      colors[key] = v.colors[key];
+    }
+    if (Object.keys(colors).length > 0) out.colors = colors;
+  }
+  out.fit = fit;
+  return out;
+}
+
+/** The decoded size of standard base64 [text] (no whitespace, padding optional), or null when it is not base64. */
+function base64Size(text) {
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(text)) return null;
+  const body = text.replace(/=+$/, "");
+  if (body.length % 4 === 1) return null;
+  return Math.floor((body.length * 3) / 4);
+}
+
+/**
  * PluginScreenOutput.pluginGoOf (apiVersion 20): a `go.plugin`'s value, only `repo`, `route`, `args` and `query`. `repo` is a
  * GitHub `owner/name[/path]` (no URL, no pinned `@ref`; `@HEAD` is the default branch), returned as `address`, the canonical
  * form. `route` is a go.screen route, `args` an object within the go.screen cap, `query` a string of at most `maxQueryChars`.
@@ -761,11 +831,27 @@ function validateManifestObject(o, { knownPermissions = contract.permissions } =
       if (!seen.has(repo.toLowerCase())) { seen.add(repo.toLowerCase()); recommends.push(repo); }
     }
   }
+  // "bundles" (apiVersion 31, contract.manifest.bundles): at most `max` plain GitHub owner/name installed with this plugin.
+  const bn = m.bundles;
+  let bundles = [];
+  if (o.bundles !== undefined && o.bundles !== null) {
+    if (!Array.isArray(o.bundles)) return bad("bundles", bn.badMessage);
+    if (o.apiVersion < bn.apiVersion) return bad("bundles", bn.apiMessage);
+    if (o.bundles.length > bn.max) return bad("bundles", bn.badMessage);
+    const seen = new Set();
+    for (const entry of o.bundles) {
+      const repo = bareRepoOf(entry, bn.maxRepoChars);
+      if (repo === null) return bad("bundles", bn.badMessage);
+      if (!seen.has(repo.toLowerCase())) { seen.add(repo.toLowerCase()); bundles.push(repo); }
+    }
+  }
   // "catalogOnly": true (Kino 0.9.54, additive: valid at every apiVersion, ignored by older apps) lists titles and plays none:
   // `resolve` is not required, one of its own atLeastOneOf is, and nothing that only serves playback may be declared.
   const co = m.catalogOnly;
   if (o.catalogOnly !== undefined && typeof o.catalogOnly !== "boolean") return bad("catalogOnly", co.notBooleanMessage);
   const catalogOnly = o.catalogOnly === true;
+  // apiVersion 32: a queue is what a player of music or podcasts keeps, so `queue` needs `resolve` (said before the usual rule).
+  if (caps.includes(contract.kinoQueue.capability) && !caps.includes("resolve")) return bad("capabilities", contract.kinoQueue.needsResolveMessage);
   if (catalogOnly) {
     const playback = co.forbiddenCapabilities.find((c) => caps.includes(c));
     if (playback !== undefined) return bad("catalogOnly", co.forbidsMessage.replace("{name}", playback));
@@ -1168,6 +1254,8 @@ function validateManifestObject(o, { knownPermissions = contract.permissions } =
   const out = { ...o, hosts: [...new Set(hosts)], capabilities: caps, permissions: o.permissions || [], settings: settingsOut, insecureHosts, liveStreamHostsAny, streamHostsAny, fetchHostsAny, discoverable, categories, debug, telemetry, browser, browserPages, visualBrowser, section, panel, screen, slot, theme, appThemes, secrets, secretKeyEncodings, catalogOnly, openFromRoutes, setup, resolveAhead };
   // The parsed `recommends` (deduplicated, as written); none when it declares none.
   if (recommends.length) out.recommends = recommends; else delete out.recommends;
+  // The parsed `bundles` (apiVersion 31), as written; none when it declares none.
+  if (bundles.length) out.bundles = bundles; else delete out.bundles;
   // Task 8q: the parsed jobs (labels scrubbed, options sorted); none below apiVersion 14 or without `schedule`.
   if (o.apiVersion >= contract.kinoJobs.apiVersion) out.jobs = jobs; else delete out.jobs;
   // apiVersion 15: the parsed `pluginStore` block ({ mode, name }); none without the capability.
@@ -1718,6 +1806,31 @@ export function allowsImageRefs(manifest) {
 // ---------- byteSource (apiVersion 13): a stream whose bytes the plugin serves through read() ----------
 
 /** The app's PluginOutput.allowsBytes: the manifest declares byteSource at apiVersion 13 or later. */
+/** Whether a plugin may answer `embed` (apiVersion 34 on its feature apiVersion, PluginOutput.allowsEmbed). */
+export function allowsEmbed(manifest) {
+  return featureApiVersion(manifest) >= o().embed.apiVersion;
+}
+
+/**
+ * A `{ embed, referer? }` Stream as the app reads it (PluginOutput.embedStreamOf): null when the plugin may not answer one, it has
+ * no embed, or it has a url (the url plays, embed dropped). An embed that is not an http(s) address has no video.
+ */
+function embedOf(value, manifest, drop) {
+  const raw = typeof value[o().embed.field] === "string" ? value[o().embed.field].trim() : "";
+  if (!raw || !allowsEmbed(manifest)) return null;
+  if (typeof value.url === "string" && value.url) { drop("resolve: the stream has both url and embed: the url plays, embed ignored"); return null; }
+  let page;
+  try { page = new URL(raw); } catch { throw new Error("the plugin returned zero videos"); }
+  if (page.protocol !== "https:" && page.protocol !== "http:") throw new Error("the plugin returned zero videos");
+  const out = { embed: page.toString(), headers: {}, subtitles: [], audioTracks: [], expiresInSeconds: 0, drm: null };
+  const ref = typeof value[o().embed.refererField] === "string" ? value[o().embed.refererField].trim() : "";
+  if (ref) { try { out.referer = new URL(ref).toString(); } catch { /* dropped like the app */ } }
+  for (const k of ["drm", "signing", "alternatives", "alternateHosts", "external", "portable"]) {
+    if (value[k] !== undefined) drop(`resolve: ${k} is ignored on an embed stream`);
+  }
+  return out;
+}
+
 export function allowsByteSource(manifest) {
   const b = contract.byteSource;
   return Number.isInteger(manifest.apiVersion) && manifest.apiVersion >= b.apiVersion &&
@@ -1845,6 +1958,14 @@ function optString(v) {
   return "";
 }
 
+/** apiVersion 31: an item's `origin` as the app reads it on a screen card (PluginOutput.itemsOf), or nothing. */
+function originField(x, ctx, id, drop) {
+  if (!ctx.allowOrigin || x.origin === undefined || x.origin === null) return {};
+  const m = typeof x.origin === "string" ? /^([A-Za-z0-9][A-Za-z0-9-]*)\/([A-Za-z0-9._-]+?)(?:\.git)?\/?$/.exec(x.origin.trim()) : null;
+  if (!m || m[2].startsWith(".")) { drop(`item ${id}: origin is not a GitHub owner/name, ignored`); return {}; }
+  return { origin: `${m[1]}/${m[2]}`.toLowerCase() };
+}
+
 function items(list, max, ctx, drop) {
   const { allowSeries, allowLive, allowAudio, allowAdult } = ctx;
   const out = [];
@@ -1898,6 +2019,8 @@ function items(list, max, ctx, drop) {
       // apiVersion 19: the ids a lyrics plugin may match an audio item by (isrc, musicbrainz, youtube), each 1 to maxAudioIdChars characters.
       ...(o().audioKinds.includes(x.kind) ? audioIdsField(ids, o()) : {}),
       ...openField(x.open, `item ${id}`, drop),
+      // apiVersion 31, screen cards only: the plugin that found the title (a plain GitHub owner/name, lower case).
+      ...originField(x, ctx, id, drop),
     });
   }
 }
@@ -1906,11 +2029,11 @@ function items(list, max, ctx, drop) {
  * The app's PluginOutput.screenItems: the items of a plugin screen's title components (apiVersion 14 allows every item
  * kind and `adult`), read by the same item parser as `home` rows, with its drop lines; at most [max].
  */
-export function screenItems(list, max, drop, allowSeries = true) {
+export function screenItems(list, max, drop, allowSeries = true, allowOrigin = false) {
   // A poster or backdrop follows the Home rule (imageVerdict: http or https on a public host, never the home network), so an IPTV
   // panel's http channel logo shows (additive, contract.manifest.screen.httpImages; https only before); a refused one is blank and
   // Kino's placeholder shows. The node's headers never go with an http picture.
-  return items(list, max, { allowSeries, allowLive: true, allowAudio: true, allowAdult: true, servers: [] }, drop);
+  return items(list, max, { allowSeries, allowLive: true, allowAudio: true, allowAdult: true, servers: [], allowOrigin }, drop);
 }
 
 /**
@@ -2022,6 +2145,52 @@ function categories(value, ctx, drop) {
     out.push({ id, title, art: image(c.art, ctx.servers) || null, ref, ...(adult ? { adult: true } : {}) });
   });
   return out;
+}
+
+/**
+ * One queue track as the app's QueueTrack.parse keeps it, or null: `ref` (1 to maxRefChars), `title` and `artist` cut like an
+ * item's, `still` an image (or an image reference with imageSource), `runtimeMinutes`, and of `ids` only tmdb, imdb, mbid, isrc.
+ */
+export function queueTrackOf(e, { servers = [], imageRefs = false } = {}) {
+  if (e === null || typeof e !== "object" || Array.isArray(e)) return null;
+  if (typeof e.ref !== "string" || !e.ref || e.ref.length > o().maxRefChars) return null;
+  const out = { ref: e.ref, title: text(e.title, o().maxTitleChars), artist: text(e.artist, o().maxArtistChars), still: imageOrRef(e.still, { servers, imageRefs }) };
+  const runtime = typeof e.runtimeMinutes === "number" ? Math.trunc(e.runtimeMinutes) : 0;
+  out.runtimeMinutes = runtime >= 1 && runtime <= o().maxRuntimeMinutes ? runtime : 0;
+  const ids = e.ids !== null && typeof e.ids === "object" && !Array.isArray(e.ids) ? e.ids : null;
+  if (ids) {
+    const kept = {};
+    const tmdb = typeof ids.tmdb === "number" ? Math.trunc(ids.tmdb) : 0;
+    if (tmdb >= 1 && tmdb <= 2147483647) kept.tmdb = tmdb;
+    if (typeof ids.imdb === "string" && re(o().imdbPattern).test(ids.imdb)) kept.imdb = ids.imdb;
+    for (const key of ["mbid", "isrc"]) {
+      const v = typeof ids[key] === "string" ? ids[key].trim() : "";
+      if (v && v.length <= o().maxAudioIdChars) kept[key] = v;
+    }
+    if (Object.keys(kept).length) out.ids = kept;
+  }
+  return out;
+}
+
+/** An answer array as QueueTrack.parseList keeps it: the first `maxPerCall` valid entries; every one skipped or beyond the cap counts in `dropped`. */
+export function queueTracksOf(raw, ctx = {}) {
+  if (!Array.isArray(raw)) return { tracks: [], dropped: 0 };
+  const tracks = [];
+  let dropped = 0;
+  for (const e of raw) {
+    const t = queueTrackOf(e, ctx);
+    if (t === null || tracks.length >= contract.kinoQueue.maxPerCall) dropped++;
+    else tracks.push(t);
+  }
+  return { tracks, dropped };
+}
+
+/** What the app keeps of an `upNext` answer (PluginUpNextSource): `{ tracks }`; null, a bare array or no usable track is an empty answer. */
+function upNextAnswer(value, drop, servers, imageRefs) {
+  const found = queueTracksOf(value !== null && typeof value === "object" && !Array.isArray(value) ? value.tracks : null, { servers, imageRefs });
+  if (Array.isArray(value)) drop('upNext: a bare array is read as nothing: answer { "tracks": [...] }');
+  if (found.dropped) drop(`upNext: ${found.dropped} track${found.dropped === 1 ? "" : "s"} dropped (no valid ref, or beyond ${contract.kinoQueue.maxPerCall})`);
+  return found;
 }
 
 function episodes(value, drop, servers, imageRefs = false) {
@@ -2458,6 +2627,9 @@ function stream(value, { manifest, servers, allowDrm, liveChannel = false, inlin
   // Read only from a plugin that declares both; anything else has its `external` ignored and fails below like a missing url.
   const external = !liveChannel && !inline ? externalOf(value.external, manifest) : null;
   if (external) return { external, headers: {}, subtitles: [], audioTracks: [], expiresInSeconds: 0, drm: null };
+  // apiVersion 34 (PluginOutput.embedStreamOf): a hoster page handed to the installed resolver plugins instead of a url. A url wins.
+  const embed = !inline ? embedOf(value, manifest, drop) : null;
+  if (embed) return embed;
   const check = urlChecker(manifest, servers);
   const drmOptions = drmOf(value, check, allowDrm, (manifest.apiVersion || 1) >= o().drm.listApiVersion, drop);
   const drm = drmOptions[0] || null;
@@ -3535,6 +3707,8 @@ export function checkOutput(fn, value, manifest, servers = [], { liveChannel = f
     case "section": return { value: section(parsed, ctx, drop), drops };
     case "categories": return { value: categories(parsed, ctx, drop), drops };
     case "episodes": return { value: episodes(parsed, drop, servers, ctx.imageRefs), drops };
+    // apiVersion 32's queue: what the app's PluginUpNextSource keeps of an upNext answer.
+    case contract.kinoQueue.exports.upNext: return { value: upNextAnswer(parsed, drop, servers, ctx.imageRefs), drops };
     // imageSource (apiVersion 13): what the app keeps of an image answer, or the reason it shows the placeholder.
     case "image": return { value: imageAnswer(parsed), drops };
     // Widevine is the `drm` capability (apiVersion 2 by the manifest rules): without it every DRM-shaped key refuses the stream.
@@ -3619,7 +3793,9 @@ export function isScreenOnlyConsumer(o) {
   if (o === null || typeof o !== "object" || !Number.isInteger(o.apiVersion) || o.apiVersion < rule.apiVersion) return false;
   if (!plainProvides(o.consumes) || !Array.isArray(o.capabilities)) return false;
   const caps = [...new Set(o.capabilities)];
-  return caps.length === rule.capabilities.length && rule.capabilities.every((c) => caps.includes(c));
+  if (caps.length === rule.capabilities.length && rule.capabilities.every((c) => caps.includes(c))) return true;
+  // apiVersion 31 (rule.extrasApiVersion): screen plus some of rule.extras (schedule, manage) is one too.
+  return o.apiVersion >= rule.extrasApiVersion && caps.includes("screen") && caps.every((c) => c === "screen" || rule.extras.includes(c));
 }
 
 /** A non-empty `provides` object (the raw shape; the blocks are validated properly by protocol.mjs). */

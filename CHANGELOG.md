@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.6
+
+- The catalog door also lists a series' episodes, for the author's other plugins (std 1.10.0)
+
 ## 0.9.5
 
 - Servers ordered by how well each hoster plays (kino-resolver's ranking); netu no longer offered (std 1.9.3)

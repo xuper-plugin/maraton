@@ -2703,5 +2703,6 @@ export async function screenEvent(ev) {
 
 // std 1.7.0: the catalog door -- the author's other plugins (Da-Video) find titles here through Kino, and Kino opens and
 // plays what they find in this plugin, with its own resolve.
-import { catalogDoor } from "./std/catalog.js";
+import { catalogDoor, catalogEpisodesDoor } from "./std/catalog.js";
 export const proto_catalog_search = catalogDoor(search);
+export const proto_catalog_episodes = catalogEpisodesDoor(episodes);

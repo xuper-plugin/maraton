@@ -58,6 +58,7 @@ export function jobKino(kino, budget, log = () => {}) {
   const refuse = (api) => { log(`Kino: ${api} is not available in a scheduled job (refused)`); return kinoError("not_allowed", `${api} can't be used in a scheduled job`); };
   const asyncRefused = (api) => async () => { await null; throw refuse(api); };
   const syncRefused = (api) => () => { throw refuse(api); };
+  const deepRefused = (api) => new Proxy(asyncRefused(api), { get: (target, key) => (typeof key === "symbol" || key === "then" ? Reflect.get(target, key) : deepRefused(api)) });
   const limitError = () => budget.exceeded === "cap_bytes"
     ? kinoError("too_large", `this scheduled job already read ${J.limits.maxResponseBytes / (1024 * 1024)} MB of answers`)
     : budget.exceeded === "cap_storage" ? kinoError("too_large", `this scheduled job already wrote its ${J.limits.maxStorageWriteBytes / 1024} KB`)
@@ -68,7 +69,8 @@ export function jobKino(kino, budget, log = () => {}) {
     if (keep.has(name)) { out[name] = value; continue; }
     const api = `kino.${name}`;
     if (typeof value === "function") out[name] = asyncRefused(api);
-    else if (value !== null && typeof value === "object") out[name] = new Proxy({}, { get: () => asyncRefused(api) });
+    // A nested API (kino.player.queue.list) refuses at any depth, with the same not_allowed.
+    else if (value !== null && typeof value === "object") out[name] = new Proxy({}, { get: () => deepRefused(api) });
     else out[name] = value; // a plain value (a version, a flag) reaches nothing
   }
   // apiVersion 17: kino.tmdb, each call one of the run's requests (the app's PluginKinoServices.tmdb).

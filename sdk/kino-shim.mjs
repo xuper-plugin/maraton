@@ -13,14 +13,15 @@
 // from `.kino-secrets.json` next to the manifest (`{ "<name>": "<value>" }`, written by hand during
 // development; `seal.mjs` only ever produces the sealed string that goes in the manifest) and
 // simulates the app's marker, substitution, declared-host-and-https and redaction rules on top of that.
-import { aiOriginAllowed, currentQrOrigin, kitCall, kitJobRequest, qrScanOriginAllowed } from "./kit-call.mjs";
+import { aiOriginAllowed, currentQrOrigin, currentQueueOrigin, kitCall, kitJobRequest, kitPanelPress, kitScreenCall, qrScanOriginAllowed, queueWriteAllowed } from "./kit-call.mjs";
+import { entryJson as queueEntryJson, MusicQueueState, QueueRefused } from "./queue.mjs";
 import { answerFor as visualBrowserAnswer, parseOptions as visualBrowserOptions, VISUAL_BROWSER_ONLY_FROM } from "./visual-browser.mjs";
 import { gunzipSync } from "node:zlib";
 import { createCipheriv, createDecipheriv, createHash, createHmac, createPublicKey, diffieHellman, generateKeyPairSync, pbkdf2Sync, randomBytes, randomUUID, timingSafeEqual, sign as nodeSign, verify as nodeVerify } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { allowsByteSource, allowsImageRefs, anyFetchRefusal, BYTE_STREAM_INVALID, byteSourceOf, readAnswer, readRangeProblem, anyHostBudget, contract, featureApiVersion, fetchAnyHost, hostMatches, imageAnswer, imageRefOf, isUserServer, kb, schemeAllowed, syncCallCap } from "./contract.mjs";
+import { allowsByteSource, allowsImageRefs, queueTracksOf, anyFetchRefusal, BYTE_STREAM_INVALID, byteSourceOf, readAnswer, readRangeProblem, anyHostBudget, contract, featureApiVersion, fetchAnyHost, hostMatches, imageAnswer, imageRefOf, isUserServer, kb, schemeAllowed, syncCallCap } from "./contract.mjs";
 import { decodeCipherKey } from "./seal.mjs";
 import { keepsAddresses } from "./screen.mjs";
 import { filterRelevant, shortQuery, sortBySimilarity } from "./kino-rank.mjs";
@@ -858,7 +859,9 @@ function deviceFor(device, env) {
  * Nuvio repositories the manifest names: `{ "owner/repo": { available: [{ id, name, description?, types?, languages?, compatible? }],
  * streams: { "<scraper id>": { "movie:603": { url, mime?, headers?, label?, subtitles?, alternatives? }, "series:1399:1:1": {...},
  * "series:1399": {...}, "movie:1": { error: { code, message } }, "movie:2": { url, delayMs: 90000 } } } } }`. Without it, kino.nuvio throws
- * `unavailable`: the kit has no scrapers of its own.
+ * `unavailable`: the kit has no scrapers of its own. A scraper the person deleted in Kino (Plugins > De terceros): `removed: true` on its
+ * `available` entry, or `removed: true` on the repository for all of them (Borrar todo); while it is not installed, `available` answers
+ * it with `removed: true` and `use` fails it with code `removed`, as the app does.
  * kino.meta / kino.tmdb (Kino 0.9.53): [metaFixture] (an object, or a file path; default env KINO_META_FIXTURE) answers
  * kino.meta offline -- keys `"<type>:<idKey>:<value>"` or `"<idKey>:<value>"` (`"movie:imdb:tt0133093"`, `"tmdb:603"`), and
  * for a lookup by title (Kino 0.9.55) `"<type>:title:<normalised title>:<year>"` or without the year (`"movie:title:the matrix:1999"`) --
@@ -894,7 +897,7 @@ function deviceFor(device, env) {
  * kino.device (Kino 0.9.55, contract.kinoDevice): [device] ("phone" or "tv", run.mjs --device), else env KINO_DEVICE,
  * else "phone". Anything else throws: a typo must not silently test the other UI.
  */
-export function createKino(manifest, { appVersion = "sdk", filesDir = null, lang = "es-CO", device = undefined, storageFile = null, cookiesFile = null, secretsFile = null, config = {}, record = null, replay = null, fetchImpl = globalThis.fetch, metaFixture = undefined, tmdbKey = undefined, tmdbFixture = undefined, thumbnailFixture = undefined, nuvioFixture = undefined, libraryFixture = undefined, libraryRevoked = false, callFunction = null, env = process.env, now = Date.now, syncCall = false, qrScan = undefined, visualBrowser = undefined, deliverScreenEvent = undefined, room = undefined, roomRevoked = false, ai = undefined, aiRevoked = false, identityRevoked = false, entryFile = null, noticesFile = null, notificationsRevoked = false, coinsRevoked = false, shared = undefined, jobsOn = [], protocol = undefined } = {}) {
+export function createKino(manifest, { appVersion = "sdk", filesDir = null, lang = "es-CO", device = undefined, storageFile = null, cookiesFile = null, secretsFile = null, config = {}, record = null, replay = null, fetchImpl = globalThis.fetch, metaFixture = undefined, tmdbKey = undefined, tmdbFixture = undefined, thumbnailFixture = undefined, nuvioFixture = undefined, libraryFixture = undefined, libraryRevoked = false, callFunction = null, env = process.env, now = Date.now, syncCall = false, qrScan = undefined, visualBrowser = undefined, deliverScreenEvent = undefined, room = undefined, roomRevoked = false, ai = undefined, aiRevoked = false, identityRevoked = false, queueRevoked = false, entryFile = null, noticesFile = null, notificationsRevoked = false, coinsRevoked = false, shared = undefined, jobsOn = [], protocol = undefined } = {}) {
   const f = contract.fetch;
   // [syncCall]: this kino runs a syncProvider's syncPull/syncPush (contract.fetch.syncCall): its requests and responses may
   // carry the declared blob, ceil(sync.maxBlobBytes * 4/3) + envelopeChars, like the app; every other call keeps the defaults.
@@ -1671,19 +1674,21 @@ export function createKino(manifest, { appVersion = "sdk", filesDir = null, lang
     const repo = nuvioRepoAnswers[key];
     const offered = (Array.isArray(repo.available) ? repo.available : []).filter((o) => plainObject(o) && typeof o.id === "string" && o.id).slice(0, N.maxOffered);
     if (!nuvioInstalled.has(repoKey(query.repo))) nuvioInstalled.set(repoKey(query.repo), new Map());
-    return { repo, offered, installed: nuvioInstalled.get(repoKey(query.repo)) };
+    const isRemoved = (id) => repo.removed === true || offered.some((o) => o.id === id && o.removed === true);
+    return { repo, offered, installed: nuvioInstalled.get(repoKey(query.repo)), isRemoved };
   }
   const nuvioApi = Object.freeze({
     async available(query) {
-      const { offered, installed } = await nuvioRepo(query);
+      const { offered, installed, isRemoved } = await nuvioRepo(query);
       return offered.map((o) => ({
         id: o.id, name: String(o.name || o.id), description: String(o.description || "").slice(0, 120),
         types: Array.isArray(o.types) ? o.types.map(String) : [], languages: Array.isArray(o.languages) ? o.languages.map(String) : [],
         compatible: o.compatible !== false, installed: installed.has(o.id),
+        ...(!installed.has(o.id) && isRemoved(o.id) ? { removed: true } : {}),
       }));
     },
     async use(query) {
-      const { offered, installed } = await nuvioRepo(query);
+      const { offered, installed, isRemoved } = await nuvioRepo(query);
       if (!Array.isArray(query.scrapers) || !query.scrapers.length || query.scrapers.length > N.maxUse || !query.scrapers.every((s) => typeof s === "string" && s)) {
         throw kinoError("invalid_request", `kino.nuvio.use needs "scrapers": 1 to ${N.maxUse} scraper ids`);
       }
@@ -1691,7 +1696,9 @@ export function createKino(manifest, { appVersion = "sdk", filesDir = null, lang
       const failed = [];
       for (const id of query.scrapers) {
         const o = offered.find((x) => x.id === id);
-        if (!o) failed.push({ id, code: "not_found", message: "the repository offers no such scraper" });
+        if (installed.has(id)) ready.push(id);
+        else if (isRemoved(id)) failed.push({ id, code: N.removedCode, message: "the person removed this scraper" });
+        else if (!o) failed.push({ id, code: "not_found", message: "the repository offers no such scraper" });
         else if (o.compatible === false) failed.push({ id, code: "refused", message: "Kino does not use this scraper (it needs torrents)" });
         else { if (!installed.has(id)) installed.set(id, { id, name: String(o.name || id) }); ready.push(id); }
       }
@@ -2015,6 +2022,16 @@ export function createKino(manifest, { appVersion = "sdk", filesDir = null, lang
     },
   });
 
+  // --- kino.manage (apiVersion 31, capability "manage"): the kit installs nothing, so a manager manages nothing here: updates()
+  // answers an empty list and updateAll() starts no pass. Test the real thing in Kino (a manager pinned to an author key).
+  const manageApi = Object.freeze({
+    async updates() { await null; return { plugins: [], running: false, lastRun: null, lastResult: [] }; },
+    async updateAll(opts) {
+      await null;
+      if (opts !== undefined && opts !== null && (typeof opts !== "object" || Array.isArray(opts))) { const e = new Error("kino.manage.updateAll: opts must be an object"); e.code = "bad_request"; throw e; }
+      return { started: false, running: false };
+    },
+  });
   // --- kino.vault (apiVersion 28, capability "vault"): the plugin's own sealed secret. The real Kino runs the whole
   // exchange and resolves it by (pluginId, author); the kit hands back a fake you set with KINO_VAULT_SECRET (the JSON
   // secret) or makes get() throw KINO_VAULT_ERROR (a code like not_member, not_found or rate_limited). ---
@@ -2028,6 +2045,181 @@ export function createKino(manifest, { appVersion = "sdk", filesDir = null, lang
       try { return JSON.parse(raw); } catch { return raw; }
     },
   });
+
+  // --- kino.player.queue (apiVersion 32, capability "queue"): the plugin's own music queue. The app's MusicQueueState and
+  // PluginQueueBridge run the rules (queue.mjs mirrors them; test/queue-cases.json is the table both run); the kit holds one fake
+  // queue you drive with `queue` (seed, press, next, askUpNext...). Present from the plugin's feature apiVersion 32 like
+  // kino.vault (typeof kino.player === "object"); without the approved capability, switched off (KINO_QUEUE_REVOKED=1) or in a
+  // job every call rejects not_allowed. Reads answer in any call while the plugin's music plays; a write only inside the
+  // person's press (screenEvent, panelAction, playerSlotAction), whatever playerControl says. ---
+  const QQ = contract.kinoQueue;
+  const queueOff = queueRevoked || env.KINO_QUEUE_REVOKED === "1";
+  const queueGranted = () => (manifest.capabilities || []).includes(QQ.capability) && featureApiVersion(manifest) >= QQ.apiVersion && !queueOff;
+  let queueState = null;
+  const queueEvents = [];
+  const queueLog = (line) => kinoLog(line);
+  const queueCtx = () => ({ servers: servers.map((s) => s.toString()), imageRefs: allowsImageRefs(manifest) });
+  const queueRefuse = (code, message) => kinoError(code, message.startsWith("kino.player.queue") ? message : `kino.player.queue: ${message}`);
+  const queueSnapshot = () => queueState.toJson();
+  const recordQueueChanged = (reason) => queueEvents.push({ type: "queueChanged", reason, upcoming: queueState.upcoming.length, history: queueState.history.length });
+  const recordTrackChanged = () => queueEvents.push({ type: "trackChanged", track: queueEntryJson(queueState.current), index: queueState.history.length });
+  /** PluginQueueBridge.answer, check for check: the grant, a queue of this plugin's music, the write gate, the request, the change. */
+  const queueAnswer = (req) => {
+    if (!queueGranted()) throw queueRefuse("not_allowed", QQ.notAllowedMessage);
+    if (queueState === null) throw queueRefuse("not_playing", QQ.notPlayingMessage);
+    const text = JSON.stringify(req);
+    if (text.length > QQ.maxRequestChars) throw queueRefuse("invalid_request", "the request is too large");
+    const r = JSON.parse(text);
+    if (r.op === "list") return queueSnapshot();
+    if (!QQ.writes.includes(r.op)) throw queueRefuse("invalid_request", "unknown operation");
+    const o = currentQueueOrigin();
+    if (!queueWriteAllowed({ ...o, fn: o.fn ?? callFunction ?? undefined })) throw queueRefuse("not_allowed", QQ.writeRefusedMessage);
+    const queueId = () => (typeof r.queueId === "string" && r.queueId.length > 0 && r.queueId.length <= 64 ? r.queueId : null);
+    const done = (reason) => { recordQueueChanged(reason); return queueSnapshot(); };
+    try {
+      switch (r.op) {
+        case "add": {
+          if (!Array.isArray(r.tracks)) throw queueRefuse("invalid_request", "add takes tracks: an array");
+          if (r.tracks.length === 0) throw queueRefuse("invalid_request", "add takes at least one track");
+          if (r.tracks.length > QQ.maxPerCall) throw queueRefuse("too_many", `at most ${QQ.maxPerCall} tracks in one call`);
+          const position = r.position === undefined || r.position === null || r.position === "end" ? "end" : r.position === "next" ? "next" : null;
+          if (position === null) throw queueRefuse("invalid_request", `position is "next" or "end" (got ${String(r.position).slice(0, 20)})`);
+          const parsed = queueTracksOf(r.tracks, queueCtx());
+          if (!parsed.tracks.length) throw queueRefuse("invalid_request", "none of the tracks has a ref");
+          queueState.add(parsed.tracks, position);
+          return done("added");
+        }
+        case "remove": {
+          const id = queueId();
+          if (id === null) throw queueRefuse("invalid_request", "remove takes a queueId");
+          queueState.remove(id);
+          return done("removed");
+        }
+        case "move": {
+          const id = queueId();
+          if (id === null) throw queueRefuse("invalid_request", "move takes a queueId");
+          if (!Number.isInteger(r.toIndex) || Math.abs(r.toIndex) > 2147483647) throw queueRefuse("invalid_request", "move takes an integer toIndex");
+          queueState.move(id, r.toIndex);
+          return done("moved");
+        }
+        case "playAt": {
+          const id = queueId();
+          if (id === null) throw queueRefuse("invalid_request", "playAt takes a queueId");
+          const before = queueState.current.queueId;
+          if (queueState.playAt(id) === null) throw queueRefuse("not_found", "track not found in the queue");
+          const snapshot = done("playAt");
+          if (queueState.current.queueId !== before) recordTrackChanged();
+          return snapshot;
+        }
+        default:
+          queueState.clear();
+          return done("cleared");
+      }
+    } catch (e) {
+      if (e instanceof QueueRefused) throw queueRefuse(e.code, e.message);
+      throw e;
+    }
+  };
+  // The prelude's own checks come first, before anything reaches Kino (prelude.js queueAdd).
+  const queueCall = async (req) => { await null; return queueAnswer(req); };
+  const playerApi = Object.freeze({
+    queue: Object.freeze({
+      list: async () => queueCall({ op: "list" }),
+      add: async (tracks, options) => {
+        await null;
+        if (!Array.isArray(tracks)) throw kinoError("invalid_request", "kino.player.queue.add takes an array of tracks");
+        if (tracks.length > QQ.maxPerCall) throw kinoError("too_many", `kino.player.queue.add takes at most ${QQ.maxPerCall} tracks`);
+        const req = { op: "add", tracks };
+        if (options !== null && typeof options === "object" && options.position !== undefined) req.position = options.position;
+        return queueCall(req);
+      },
+      remove: async (queueId) => queueCall({ op: "remove", queueId }),
+      move: async (queueId, toIndex) => queueCall({ op: "move", queueId, toIndex }),
+      playAt: async (queueId) => queueCall({ op: "playAt", queueId }),
+      clear: async () => queueCall({ op: "clear" }),
+    }),
+  });
+  const queueTrackOfSeed = (e, own) => {
+    const t = typeof e === "string" ? { ref: e } : e;
+    return { track: { ref: t.ref, title: t.title ?? t.ref, artist: t.artist ?? "", still: t.still ?? "", runtimeMinutes: t.runtimeMinutes ?? 0, ...(t.ids ? { ids: t.ids } : {}) }, fromLibrary: !(own || t.own === true) };
+  };
+  const queueDriver = {
+    /** A fake `timeoutMs` for askUpNext: contract.kinoQueue.timeoutMs. */
+    timeoutMs: QQ.timeoutMs,
+    /** The plugin askUpNext() asks when none is given (an object with the exports, as loadPlugin returns). */
+    plugin: null,
+    /** What a plugin's playerEvent would be told, in order: { type: "trackChanged", track, index } and { type: "queueChanged", reason, upcoming, history }. */
+    events: queueEvents,
+    /**
+     * An album or a lone track starts playing: `{ current, upcoming?, history? }`, each entry a ref or a track object. Entries are
+     * the album's library rows (never cut, never counted); `{ ref, own: true }` stands for a track the plugin put in itself.
+     */
+    seed({ current, upcoming = [], history = [] }) {
+      queueEvents.length = 0;
+      queueState = MusicQueueState.seed(queueTrackOfSeed(current), history.map((e) => queueTrackOfSeed(e)), upcoming.map((e) => queueTrackOfSeed(e)));
+      // QueuePlayback.announce: the queue's first current track is told to the plugin once, as every later one is.
+      recordTrackChanged();
+      return queueDriver;
+    },
+    /** The queue ends (something else plays, or the person stops): the plugin's calls answer not_playing. */
+    end() { queueState = null; },
+    get state() { return queueState; },
+    granted: queueGranted,
+    /** Runs `fn` as the person's own press in export `as` (default screenEvent; or panelAction, playerSlotAction): the only calls that may write. */
+    press(fn, { as = "screenEvent" } = {}) {
+      if (as === "screenEvent") return kitCall.run(as, () => kitScreenCall.run({ press: true, tick: false }, fn));
+      return kitCall.run(as, () => kitPanelPress.run(true, fn));
+    },
+    /** The player moves on to the next / previous track of the queue (a trackChanged for the plugin); null at the end. */
+    next() { const e = queueState.next(); if (e) recordTrackChanged(); return e && e.track; },
+    previous() { const e = queueState.previous(); if (e) recordTrackChanged(); return e && e.track; },
+    markAsking() { queueState.markAsking(); },
+    appendUpNext(tracks) {
+      const kept = queueTracksOf(tracks, queueCtx()).tracks;
+      queueState.appendUpNext(kept);
+      // QueuePlayback.maybeAskUpNext: any non-empty answer is an onChanged("upNext"), even when none of it fits.
+      if (kept.length) recordQueueChanged("upNext");
+    },
+    upNextFailed() { queueState.upNextFailed(); },
+    wantsUpNext() { return queueState !== null && queueState.wantsUpNext(); },
+    get suppressed() { return queueState.suppressed; },
+    set suppressed(v) { queueState.suppressed = v === true; },
+    /**
+     * Kino asks the plugin what plays next, as PluginUpNextSource does: only a granted plugin that exports upNext, while the queue
+     * wants it (no upcoming, fewer than maxEmptyUpNext empty or failed answers in a row, not suppressed). Resolves
+     * `{ answer: "tracks" | "empty" | "failed" | "notAsked", tracks, dropped }`; the tracks are appended to the queue.
+     */
+    async askUpNext(plugin = queueDriver.plugin) {
+      const none = { answer: "notAsked", tracks: [], dropped: 0 };
+      if (queueState === null || !queueGranted() || !plugin || typeof plugin[QQ.exports.upNext] !== "function" || !queueState.wantsUpNext()) return none;
+      queueState.markAsking();
+      const arg = JSON.parse(JSON.stringify({ current: queueEntryJson(queueState.current), queue: queueSnapshot() }));
+      let timer;
+      let out;
+      try {
+        out = await Promise.race([
+          kitCall.run(QQ.exports.upNext, () => plugin[QQ.exports.upNext](arg)),
+          new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`upNext: still busy after ${queueDriver.timeoutMs} ms`)), queueDriver.timeoutMs); }),
+        ]);
+      } catch (e) {
+        queueLog(`upNext failed: ${e && e.message}`);
+        queueState.upNextFailed();
+        return { ...none, answer: "failed" };
+      } finally { clearTimeout(timer); }
+      let text;
+      try { text = out === undefined ? "" : JSON.stringify(out); } catch { text = undefined; }
+      if (text === undefined || (text !== "" && text !== "null" && !(out !== null && typeof out === "object"))) {
+        // Not JSON the app can read as an object or an array.
+        queueState.upNextFailed();
+        return { ...none, answer: "failed" };
+      }
+      const list = queueTracksOf(out !== null && typeof out === "object" && !Array.isArray(out) ? out.tracks : null, queueCtx());
+      queueState.appendUpNext(list.tracks);
+      if (!list.tracks.length) return { answer: "empty", tracks: [], dropped: list.dropped };
+      recordQueueChanged("upNext");
+      return { answer: "tracks", tracks: list.tracks, dropped: list.dropped };
+    },
+  };
 
   // --- kino.ws (apiVersion 13, capability "socket"): the app's PluginWebSocket over Node's global WebSocket. wss:// only,
   // a host the manifest declares (never an IP literal or a local name, which cannot be declared), at most
@@ -2555,6 +2747,10 @@ export function createKino(manifest, { appVersion = "sdk", filesDir = null, lang
     ...(featureApiVersion(manifest) >= contract.kinoIdentity.apiVersion ? { identity: identityApi } : {}),
     // apiVersion 28 (contract.kinoVault): present on every apiVersion 28 kino (typeof kino.vault === "object").
     ...(featureApiVersion(manifest) >= contract.kinoVault.apiVersion ? { vault: vaultApi } : {}),
+    // apiVersion 31 (contract.kinoManage): present on every apiVersion 31 kino (typeof kino.manage === "object").
+    ...(featureApiVersion(manifest) >= contract.kinoManage.apiVersion ? { manage: manageApi } : {}),
+    // apiVersion 32 (contract.kinoQueue): present on every apiVersion 32 kino, like vault (typeof kino.player === "object").
+    ...(featureApiVersion(manifest) >= QQ.apiVersion ? { player: playerApi } : {}),
     // apiVersion 15 (contract.kinoNotifications): present on every apiVersion 15 kino (typeof kino.notifications === "object").
     ...(featureApiVersion(manifest) >= contract.kinoNotifications.apiVersion ? { notifications: Object.freeze({ post: notificationsApi.post, clear: notificationsApi.clear }) } : {}),
     // apiVersion 16 (contract.kinoCoins): present on every apiVersion 16 kino (typeof kino.coins === "object").
@@ -2581,6 +2777,26 @@ export function createKino(manifest, { appVersion = "sdk", filesDir = null, lang
           if (!protocol) throw protocolError("provider_missing", "no provider given to the kit: run with --provider <folder>");
           return protocol.call(alias, call, JSON.parse(text));
         },
+        // apiVersion 31 (contract.protocol.callAll): every provider an author entry covers (the --provider folders of that owner).
+        ...(featureApiVersion(manifest) >= contract.protocol.callAll.apiVersion ? {
+          async callAll(alias, call, arg, opts) {
+            await null;
+            if (typeof alias !== "string" || typeof call !== "string") throw protocolError("bad_input", "kino.plugins.callAll takes (alias, call, arg, opts) with alias and call strings");
+            if (opts !== undefined && opts !== null && (typeof opts !== "object" || Array.isArray(opts))) throw protocolError("bad_input", "kino.plugins.callAll: opts must be an object");
+            const only = opts?.only ?? null;
+            if (only !== null && (!Array.isArray(only) || only.some((r) => typeof r !== "string"))) throw protocolError("bad_input", "kino.plugins.callAll: opts.only must be a list of owner/name");
+            let text;
+            try { text = JSON.stringify(arg === undefined ? null : arg); } catch { throw protocolError("bad_input", "kino.plugins.callAll: the argument cannot be turned into JSON"); }
+            if (typeof text !== "string" || Buffer.byteLength(text, "utf8") > contract.protocol.call.maxPayloadBytes) throw protocolError("bad_input", "kino.plugins.callAll: the argument is too large");
+            if (!protocol) return [];
+            return protocol.callAll(alias, call, JSON.parse(text), only);
+          },
+          async providers(alias) {
+            await null;
+            if (typeof alias !== "string") throw protocolError("bad_input", "kino.plugins.providers takes (alias) with alias a string");
+            return protocol ? protocol.providers(alias) : [];
+          },
+        } : {}),
         // apiVersion 30 (contract.protocol.setup): ask Kino to set up another plugin / where that stands (Kino answers
         // contract.protocol.setup.statusFields: { ready, running, progress?, label? }). The kit installs no other plugin, so after
         // the app's order (the repo is checked first: bad_request) every target is not_installed.
@@ -2651,6 +2867,8 @@ export function createKino(manifest, { appVersion = "sdk", filesDir = null, lang
   return {
     kino,
     servers: servers.map((s) => s.toString()),
+    // apiVersion 32: the fake music queue a plugin's test drives (seed, press, next, askUpNext...; see contract.kinoQueue).
+    queue: queueDriver,
     resetBudget: () => { requests = 0; },
     saveTape: () => { if (record && tape) saveJson(record, tape); },
     /**

@@ -754,7 +754,8 @@ export function actionEvent(key, trigger, value, values) {
 }
 
 export const TRIGGERS = ["press", "change", "submit", "tab", "open"];
-export const PLAYER_EVENTS = ["started", "paused", "resumed", "ended", "failed", "copyChanged"];
+// contract.manifest.panel.playerEvents: the six of apiVersion 9 and, with the queue capability (apiVersion 32), trackChanged and queueChanged.
+export const PLAYER_EVENTS = [...contract.manifest.panel.playerEvents];
 
 // ---------- Task 8k: a panel contributed to another plugin's title ----------
 

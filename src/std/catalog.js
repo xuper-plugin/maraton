@@ -6,16 +6,23 @@
 /** At most this many titles per answer (the protocol's 64 KB answer limit stays far away). */
 export const CATALOG_MAX = 40;
 
+/** At most this many episodes per answer. */
+export const CATALOG_EPISODES_MAX = 500;
+
 /** The manifest's "provides" block of the door (copy it into kino-plugin.json). */
 export const CATALOG_PROVIDES = {
   catalog: {
     summary: "Titles this plugin finds, for the author's other plugins",
-    calls: { search: { in: { q: "string", type: "string?" }, out: "Item[]" } },
+    calls: {
+      search: { in: { q: "string", type: "string?", tmdb: "number?" }, out: "Item[]" },
+      episodes: { in: { ref: "string" }, out: "Episode[]" },
+    },
     types: {
       Item: {
         id: "string", ref: "string", title: "string", kind: "string",
         poster: "string?", backdrop: "string?", year: "string?", overview: "string?", tmdb: "number?",
       },
+      Episode: { season: "number", number: "number", ref: "string", title: "string?" },
     },
   },
 };
@@ -46,7 +53,8 @@ export function catalogItems(found) {
 export function catalogQuery(arg) {
   const q = String((arg && arg.q) || "").trim().slice(0, 200);
   const type = arg && (arg.type === "movie" || arg.type === "series") ? arg.type : "any";
-  return { q, type, season: 0, episode: 0, tmdbId: 0, year: 0, originalTitle: "", altTitles: [], cursor: null };
+  const tmdbId = arg && Number.isInteger(arg.tmdb) && arg.tmdb > 0 ? arg.tmdb : 0;
+  return { q, type, season: 0, episode: 0, tmdbId, year: 0, originalTitle: "", altTitles: [], cursor: null };
 }
 
 /** The door's `search` call over a plugin's own [search]: empty words answer nothing, without asking the site. */
@@ -55,5 +63,39 @@ export function catalogDoor(search) {
     const query = catalogQuery(arg);
     if (!query.q) return [];
     return catalogItems(await search(query));
+  };
+}
+
+/** An integer, or an integer-like string ("3", " 12 ") as an integer; anything else null. */
+function wholeNumber(v) {
+  if (Number.isInteger(v)) return v;
+  if (typeof v === "string" && /^\s*\d+\s*$/.test(v)) return parseInt(v, 10);
+  return null;
+}
+
+/** A plugin's own `episodes` answer (an array or `{ episodes }`) as the door's `Episode`s: season (missing = 1), number, ref, title. */
+export function catalogEpisodes(list) {
+  const rows = Array.isArray(list) ? list : list && Array.isArray(list.episodes) ? list.episodes : [];
+  const out = [];
+  for (const e of rows) {
+    if (out.length >= CATALOG_EPISODES_MAX) break;
+    if (!e) continue;
+    const number = wholeNumber(e.number);
+    if (number === null || number < 1 || typeof e.ref !== "string" || !e.ref) continue;
+    const season = e.season === undefined || e.season === null ? 1 : wholeNumber(e.season);
+    if (season === null || season < 0) continue;
+    const row = { season, number, ref: e.ref };
+    if (typeof e.title === "string" && e.title) row.title = e.title;
+    out.push(row);
+  }
+  return out;
+}
+
+/** The door's `episodes` call over a plugin's own [episodes]: an empty ref answers nothing, without asking the site. */
+export function catalogEpisodesDoor(episodes) {
+  return async (arg) => {
+    const ref = arg && typeof arg.ref === "string" ? arg.ref.trim() : "";
+    if (!ref) return [];
+    return catalogEpisodes(await episodes(ref));
   };
 }

@@ -25,6 +25,7 @@ import { protocolBlocks, protocolWarnings } from "./protocol.mjs";
 import { resolveAppTheme } from "./appthemes.mjs";
 import { decodeCipherKey } from "./seal.mjs";
 import { createKino, signingLane } from "./kino-shim.mjs";
+import { kitPanelPress } from "./kit-call.mjs";
 import { loadPlugin, missingGlobalLines, scanMissingGlobals } from "./sandbox.mjs";
 import { call, callMeta, callPanel, markLiveSearch, metaQueryForItem, panelRequest, parseArgs, resolveFirstLiveRef, signExportProblem, unmarkedSearchNote } from "./run.mjs";
 import { loadPlaylist } from "./live-playlist.mjs";
@@ -74,6 +75,8 @@ export function consentLines(m, { authorFingerprint = null } = {}) {
   if (m.capabilities.includes(contract.manifest.panel.contributes.capability)) line(contract.manifest.panel.contributes.consentLine.es, true);
   // apiVersion 14 "playerControl" (PluginConsent.extraLines, Task 8j): it can pause, resume and move the video by itself: red.
   if (m.capabilities.includes(contract.kinoPlayerControl.capability)) line(contract.kinoPlayerControl.consentLine.es, true);
+  // apiVersion 32 "queue" (PluginConsent.extraLines): what plays next and the person's own queue: a plain line, not red (StringsEs.pluginConsent.queue).
+  if (m.capabilities.includes(contract.kinoQueue.capability)) line(contract.kinoQueue.consentLine.es);
   // apiVersion 23 "playerSlot" (PluginConsent.extraLines): only a `fixed` element asks (it holds a place in the player): red.
   if (m.slot?.hasFixed) line(contract.playerSlot.fixedConsentLine.es, true);
   // apiVersion 14 "room" (PluginConsent.extraLines, Task 8l): people on the Internet reach this device while a room is open: red.
@@ -83,6 +86,9 @@ export function consentLines(m, { authorFingerprint = null } = {}) {
   // apiVersion 14 "ai" (PluginConsent.extraLines, Task 8r): what it sends leaves the device for a third-party AI service: red.
   if (m.capabilities.includes(contract.kinoAi.capability)) line(contract.kinoAi.consentLine.es, true);
   // apiVersion 15 "identity" (PluginConsent.extraLines): who the person is on Telegram may leave the device: red.
+  // apiVersion 31 "manage" (PluginConsent.extraLines): updates of the author's plugins install with no sheet: red. Kino names the
+  // GitHub owner the manager was installed from; the kit, the manifest's author.
+  if (m.capabilities.includes(contract.kinoManage.capability)) line(contract.kinoManage.consentLine.es.replace("{author}", String(m.author || m.name)), true);
   if (m.capabilities.includes(contract.kinoIdentity.capability)) line(contract.kinoIdentity.consentLine.es, true);
   // apiVersion 15 "notifications" (PluginConsent.extraLines): notices in the Home bell: a plain line, not red.
   if (m.capabilities.includes(contract.kinoNotifications.capability)) line(contract.kinoNotifications.consentLine.es);
@@ -210,7 +216,8 @@ export async function runSlot(plugin, run, args, m) {
   const id = args[1];
   const button = m.slot.elements.find((e) => e.id === id && e.kind === "button");
   if (!button) { problems.push(`${run} needs the id of a declared button (${m.slot.elements.filter((e) => e.kind === "button").map((e) => e.id).join(", ") || "this manifest declares none"})`); return out(null); }
-  const answer = await plugin.playerSlotAction({ id, context });
+  // A slot button's press is the person's own press: what a kino.player.queue write needs.
+  const answer = await kitPanelPress.run(true, () => plugin.playerSlotAction({ id, context }));
   const request = slotActionRequest(answer, { contributed: false, control: (m.capabilities || []).includes(contract.kinoPlayerControl.capability) }, (l) => drops.push(l));
   return out(request ?? null);
 }
@@ -621,6 +628,11 @@ export async function validate(dirArg, { run = null, args = [], config = {}, rep
     // Task 8j: what the capability changes, so the author does not count on it (the person may refuse or revoke it).
     const P = contract.kinoPlayerControl;
     notes.push(`playerControl: your player actions also count from a panel result's own player (refreshMs) and from playerEvent, and a contributed tab may also ${P.contributedWithControl.filter((f) => f !== "seekToMs").join(" and ")}; Kino announces each one the person did not cause, drops it under a Kino dialog or while they seek, keeps only pause on live, and allows ${P.perMinute} a minute. The person may refuse it or switch it off: work without it. Try it: KINO_PLAYER_CONTROL_REVOKED=1 node sdk/run.mjs <this folder> panel <ref>`);
+  }
+  if ((m.capabilities || []).includes(contract.kinoQueue.capability)) {
+    // apiVersion 32: what the queue is and is not, so the author does not count on a write from anywhere but the person's press.
+    const Q = contract.kinoQueue;
+    notes.push(`queue: Kino keeps the person's play queue (the track playing, what comes next, what played) and draws no list of it: you show it with kino.player.queue.list() and edit it with add, remove, move, playAt and clear, which work only inside the person's own press (${Q.writeFrom.join(", ")}; never a playerEvent, a refresh, a timer, a job or a change, not even with playerControl) and reject not_allowed anywhere else; a read works in any call while your music plays (not_playing otherwise). When the last track plays and nothing is next, Kino asks your optional ${Q.exports.upNext}({ current, queue }) (${Q.timeoutMs / 1000} s) and appends the first ${Q.maxPerCall} tracks of { "tracks": [...] } (a track is { ref, title?, artist?, still?, runtimeMinutes?, ids? }; null or a bare array is nothing); after ${Q.maxEmptyUpNext} empty answers or failures in a row it stops asking. At most ${Q.maxPerCall} tracks an add and ${Q.maxUpcoming} upcoming and ${Q.maxHistory} played of yours (an album's own tracks never count). playerEvent also gets ${Q.events.join(" and ")}, also with the screen off (then with a headless context, and your answer is dropped). The person may refuse it or switch it off: work without it. Try it: node sdk/run.mjs <this folder> ${Q.exports.upNext} <ref> and KINO_QUEUE_REVOKED=1; a test drives the fake queue with createKino(manifest).queue (seed, press, askUpNext)`);
   }
   if ((m.capabilities || []).includes(contract.playerSlot.capability) && m.slot) {
     // apiVersion 23: what the slot is and is not, so the author does not count on more.

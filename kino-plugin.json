@@ -1,7 +1,7 @@
 {
   "id": "maraton",
   "name": "PelisYSeries",
-  "version": "0.9.5",
+  "version": "0.9.6",
   "apiVersion": 30,
   "entry": "plugin.js",
   "description": "Series, anime y películas en latino, castellano o subtitulado. El video se busca en tu propio aparato, sin servidores intermedios.",
@@ -206,9 +206,16 @@
         "search": {
           "in": {
             "q": "string",
-            "type": "string?"
+            "type": "string?",
+            "tmdb": "number?"
           },
           "out": "Item[]"
+        },
+        "episodes": {
+          "in": {
+            "ref": "string"
+          },
+          "out": "Episode[]"
         }
       },
       "types": {
@@ -222,6 +229,12 @@
           "year": "string?",
           "overview": "string?",
           "tmdb": "number?"
+        },
+        "Episode": {
+          "season": "number",
+          "number": "number",
+          "ref": "string",
+          "title": "string?"
         }
       }
     }

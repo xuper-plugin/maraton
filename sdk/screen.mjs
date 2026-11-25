@@ -5,7 +5,7 @@
 // invalid node, style value, action or field is dropped with a reason. Like panel.mjs it reads the answer the way org.json
 // does (the answer crosses to Kino as JSON), and like the Kotlin it walks a JSON object's keys SORTED wherever the walk
 // can log, so the lines come out in the same order. plugins/sdk/test/screen-cases.json is the case table both sides share.
-import { contract, imageVerdict, isUserServer, javaDouble, screenGoOf, screenItems, titleByIdsOf, urlGoOf, copyGoOf, liveChannelGoOf, useThemeGoOf, setExperienceGoOf, installPluginGoOf, pluginGoOf } from "./contract.mjs";
+import { contract, imageVerdict, isUserServer, javaDouble, screenGoOf, screenItems, titleByIdsOf, urlGoOf, copyGoOf, liveChannelGoOf, useThemeGoOf, setExperienceGoOf, installPluginGoOf, pluginGoOf, applyImageThemeGoOf } from "./contract.mjs";
 import { badgeOf, cappedLog, colorHint, panelAccentOf, panelMessageOf, panelPlayerOf, panelRefreshOf, panelTabsOf } from "./panel.mjs";
 
 // ---------- limits and name tables (ScreenLimits, ScreenWidgets; numbers come from the contract file) ----------
@@ -2014,7 +2014,7 @@ class Reader {
       if (!this.titlesLogged) { this.titlesLogged = true; this.log(`screen: more than ${LIMITS.maxTitles} titles, the rest dropped`); }
       out = [];
     } else {
-      let read = screenItems(Array.isArray(raw) ? raw : [raw], max, (line) => this.log(`screen: ${type} ${line}`), this.allowSeries);
+      let read = screenItems(Array.isArray(raw) ? raw : [raw], max, (line) => this.log(`screen: ${type} ${line}`), this.allowSeries, this.apiVersion >= contract.protocol.callAll.apiVersion);
       if (flatHere && read.length > LIMITS.maxFlatTitles) {
         this.log(`screen: ${type} drawn all at once here keeps ${LIMITS.maxFlatTitles} titles, the rest dropped (a long one needs a list of its own)`);
         read = read.slice(0, LIMITS.maxFlatTitles);
@@ -2618,7 +2618,7 @@ class Reader {
   }
 
   /** Exactly one of the go shapes, logged under [where] when it is not. */
-  goOf(o, where) {
+  goOf(o, where, fromAnswer = false) {
     const keys = Object.keys(o);
     const k = keys.length === 1 && GO_KEYS.includes(keys[0]) ? keys[0] : null;
     if (k === null) { this.log(`${where} go must be exactly one of ${GO_KEYS.join(", ")}, dropped`); return null; }
@@ -2661,6 +2661,19 @@ class Reader {
       if (this.apiVersion < min) return bad(`needs apiVersion ${min}`);
       const g = installPluginGoOf(v, (why) => this.log(`${where} go.installPlugin ${why}, dropped`));
       return g === null ? null : { installPlugin: g };
+    }
+    if (k === "uninstallPlugin") {
+      const min = contract.manifest.screen.goUninstallPlugin.apiVersion;
+      if (this.apiVersion < min) return bad(`needs apiVersion ${min}`);
+      const g = installPluginGoOf(v, (why) => this.log(`${where} go.uninstallPlugin ${why}, dropped`));
+      return g === null ? null : { uninstallPlugin: g };
+    }
+    if (k === "applyImageTheme") {
+      // The picture's bytes may arrive only in the answer to the person's press, never in a node that every render would carry.
+      const min = contract.manifest.screen.goApplyImageTheme.apiVersion;
+      if (this.apiVersion < min) return bad(`needs apiVersion ${min}`);
+      const g = applyImageThemeGoOf(v, fromAnswer, (why) => this.log(`${where} go.applyImageTheme ${why}, dropped`));
+      return g === null ? null : { applyImageTheme: g };
     }
     if (k === "plugin") {
       const min = contract.manifest.screen.goPlugin.apiVersion;
@@ -2988,7 +3001,7 @@ function answerOf(o, lang, log, allowSeries = true, settings = null, apiVersion 
   let go = null;
   const g = opt(o, "go");
   if (absent(g)) go = null;
-  else if (isObj(g)) go = reader.goOf(g, "screen: answer");
+  else if (isObj(g)) go = reader.goOf(g, "screen: answer", true);
   else log("screen: answer.go is not an object, dropped");
   let focus = null;
   const f = opt(o, "focus");
@@ -3165,6 +3178,8 @@ export function checkPanelScreenAnswer(value, lang = "es", { allowSeries = true,
     if (a.go?.setExperience) { capped("panel: go.setExperience is honoured only on the plugin's own screen, dropped"); a.go = null; }
     // apiVersion 19: the plugin store is reached only from the plugin's own full screen, never from the player.
     if (a.go?.installPlugin) { capped("panel: go.installPlugin is honoured only on the plugin's own screen, dropped"); a.go = null; }
+    if (a.go?.uninstallPlugin) { capped("panel: go.uninstallPlugin is honoured only on the plugin's own screen, dropped"); a.go = null; }
+    if (a.go?.applyImageTheme) { capped("panel: go.applyImageTheme is honoured only on the plugin's own screen, dropped"); a.go = null; }
     if (a.go?.plugin) { capped("panel: go.plugin is honoured only on the plugin's own screen, dropped"); a.go = null; }
     let panel = null;
     const p = opt(v, "panel");
